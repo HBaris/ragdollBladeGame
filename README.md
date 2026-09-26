@@ -1,51 +1,62 @@
-# Ragdoll Kılıç
+# Ragdoll Kılıç 3D
 
-Menü yok. Sayfayı açtığın an oyundasın: koş, kes, ragdoll'ları uçur.
+Menü yok. Sayfayı açtığın an seviye başlıyor: koş, kılıcı savur, jöle gibi ragdoll'ları doğra.
 
-Tek bağımlılık yok, derleme yok: düz HTML5 Canvas + JavaScript. Fizik motoru (Verlet ragdoll) ve sesler (WebAudio sentezi) oyunun içinde.
+Arkadan takip eden kamera, iri oynak gözlü parlak karakterler, iki elle tutulan uzun kılıç ve gerçekten kopan kafa, kol, bacak ve gövde. Seviye sayacı var (Lv 1, 2, 3…); her 5. seviye boss.
 
 ## Oynamak
 
-- **Bilgisayarda:** `index.html` dosyasını tarayıcıda aç. Sunucu da internet de gerekmez.
+- **Bilgisayarda:** `index.html`'i tarayıcıda aç. Kurulum ya da sunucu gerekmez; oyun tek dosyaya paketli halde `dist/game.js` içinde.
 - **Telefonda:** GitHub'da *Settings → Pages → Build and deployment → Deploy from a branch* seçip dalı ve `/ (root)` klasörünü seç. Birkaç dakika sonra oyun `https://<kullanıcı-adın>.github.io/ragdollBladeGame/` adresinde açılır.
 
-> Ses, tarayıcıların otomatik oynatma kuralı yüzünden ilk tuşa/dokunuşa kadar çalmaz. Oyun ise beklemeden başlar.
+> Ses, tarayıcıların otomatik oynatma kuralı yüzünden ilk dokunuşa kadar çalmaz. Oyun ise beklemeden başlar.
 
 ## Kontroller
 
-| Eylem | Klavye / Fare | Dokunmatik |
+| Eylem | Telefon | Bilgisayar |
 |---|---|---|
-| Koş | `A` `D` veya `←` `→` | Sol yarıda sürükle (sanal çubuk) |
-| Zıpla (2. basış = takla) | `W`, `↑`, `Boşluk` veya sağ tık | **ZIPLA** butonu veya çubuğu yukarı fırlat |
-| Kes (imlece doğru) | Sol tık | Sağ yarıda kaydır: o yöne keser |
-| Kes (ileri) | `J` (`S` basılıyken aşağı) | Sağ yarıya dokun |
-| Yukarı kes | `K` | Sağ yarıda yukarı kaydır |
-| Ses aç/kapa · Yeniden başla | `M` · `R` | — |
+| Koş | Ekranın sol yarısında sürükle (sanal çubuk) | `W` `A` `S` `D` / oklar |
+| Kaydırdığın yöne kes | Sağ yarıda kaydır: sağa → yatay, aşağı → tepeden, yukarı → aşağıdan | Fareyle sürükle |
+| Kes | Sağ yarıya dokun (sırayla farklı açılar) | Tıkla, `J` veya `Boşluk` |
+| Tepeden / aşağıdan kes | — | `K` / `L` |
+| Yeniden başlat · Ses | Sağ üstteki düğmeler | `R` · `M` |
 
-## Neler var
+Kamera en yakın düşmana kilitlenir: kaydırma yönü ekrana göredir, yani karaktere göre de doğrudur.
 
-- **Gerçek kesme:** Kılıç bir kemiği ikiye böler, iskelet ayrılır. Kafa, kol, bacak ya da gövde kopar; güdüklerden kan fışkırır, yere leke kalır.
-- **Nişan nereyse orası kopar:** Kesik, kılıç nişan çizgisini geçtiği yerde olur. Fareyle kafaya nişan alırsan kafa gider, bacaklara alırsan bacaklar.
-- **3'lü kombo:** yukarıdan aşağı → aşağıdan yukarı → etrafını biçen dönen bitiriş. Havada keserken süzülürsün; çift zıplamada takla atarsın.
-- **Düşmanlar**
-  - *Er* (mavi-gri): yumruk atar.
-  - *Kılıççı* (turuncu alın bantlı): tepeden kılıç indirir. Saldırısı sırasında kılıcına vurursan savuşturursun (**KLANG!**).
-  - *Mızrakçı* (mor): uzaktan mızrak atar. Mızrağı kılıçla sektirirsen geri uçar ve dizili düşmanları şişler (**ŞİŞ KEBAP!**).
-  - *İri* (kahverengi, büyük): 3 canı var, gövdesi son darbeye kadar kopmaz.
-- Kolu kopan düşman silahsız kalır, kan fışkırtarak panikle kaçar.
-- Ölünce düşmanlar zıplayıp sevinir. Bir tuşa bas, anında yeniden başla.
-- Öldürmelerde ağır çekim, ekran sarsıntısı, kombo sayacı; her 12 leşte bir can geri gelir. Rekor tarayıcıda saklanır.
+## Oyun
 
-## Kod
+- **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. Kafa, gövde ya da bacak kesilirse düşman ölür. Kol kesilirse silahı düşebilir ve panikle kaçar; onu da yakalayıp bitirmen gerekir.
+- **Savunma:** Kılıçlar birbirine çarpar. İki saldırı çakışırsa **KLANG!** olur, ikiniz de sendelersiniz. Bekleyen kılıcına gelen darbeyi bazen **BLOK**larsın. Düşmanlar seviye ilerledikçe daha sık bloklar, geri sıçrar, karşı saldırı yapar ve etrafını sararak yandan ya da arkadan gelir.
+- **Can:** 3 kalp. Can seviyeden seviyeye taşınır; temizlenen her seviye +1 kalp verir. Ölürsen seviye tam canla yeniden başlar.
+- **Ortamlar** sırayla döner:
+  - *Çayır:* eğrelti otları ve karlı dağlar.
+  - *Buz Sahanlığı:* kenardan suya düşen ölür, düşmanı da suya itebilirsin.
+  - *Gün Batımı Dojo:* torii kapısı ve kum tepeleri.
+- **Boss** (her 5. seviye): daha iri ve 3 canlı. Son canına kadar hiçbir yeri kopmaz.
+- Seviye ve grafik ayarı tarayıcıda saklanır. Ayarlar düğmesinden sesi ve grafik kalitesini (gölgeler, çözünürlük) değiştirebilirsin.
+
+## Geliştirme
+
+Kaynak kod `src/` altında ES modülleri olarak duruyor; `dist/game.js` bunların three.js ile birlikte paketlenmiş halidir.
+
+```bash
+npm install
+npm run build   # dist/game.js üretir (commit'lenir, çift tıkla açılsın diye)
+npm run dev     # değişiklikte otomatik yeniden paketler
+```
 
 | Dosya | İçerik |
 |---|---|
-| `js/ragdoll.js` | Verlet ragdoll, kas (poz takibi), kemik kesme, çarpışma testleri |
-| `js/actors.js` | Oyuncu, düşman türleri (`ETYPES`), pozlar, kılıç, mızrak |
-| `js/game.js` | Oyun döngüsü, ağır çekim, savaş kuralları, doğma/zorluk, HUD |
-| `js/effects.js` | Kan parçacıkları, lekeler, yazılar, atkı |
-| `js/input.js` | Klavye, fare, dokunmatik |
-| `js/world.js` | Arka plan ve zemin |
-| `js/audio.js` | Sentezlenen sesler |
+| `src/ragdoll.js` | 3D Verlet ragdoll, kaslar, kemik kesme, kılıç çarpışma testleri |
+| `src/pose.js` | Duruş/koşu/hamle pozları, bacaklar için ileri kinematik, kollar için IK |
+| `src/character.js` | Oyuncu ve düşman: hareket, savuruşlar, yapay zekâ |
+| `src/view.js` | Jöle gövde ağları, oynak gözler, kırmızı kesitler |
+| `src/sword.js` | Kılıç modeli ve elden düşen kılıç fiziği |
+| `src/game.js` | Seviyeler, dövüş kuralları, kamera, ağır çekim |
+| `src/world.js` | Ortamlar; bütün dokular kodla üretiliyor |
+| `src/effects.js` | Kan, lekeler, kıvılcım, su sıçraması |
+| `src/input.js`, `src/hud.js` | Kontroller ve arayüz |
 
-Ayar yapmak için hız, zıplama ve kılıç boyu `js/actors.js`'in başındaki sabitlerde; düşman değerleri `ETYPES`'ta; zorluk eğrisi `js/game.js` içindeki `difficulty()` ve `updateSpawn()`'da.
+Zorluk eğrisi `levelSpec()` (`src/game.js`) içinde, düşman davranışı `thinkEnemy()` (`src/character.js`) içinde.
+
+İlk sürüm olan 2D yan görünümlü oyun `2d/` klasöründe duruyor (`2d/index.html`).
