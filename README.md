@@ -13,19 +13,19 @@ Arkadan takip eden kamera, iri oynak gözlü parlak karakterler, iki elle tutula
 
 ## Kontroller
 
-| Eylem | Telefon | Bilgisayar |
-|---|---|---|
-| Koş | Ekranın sol yarısında sürükle (sanal çubuk) | `W` `A` `S` `D` / oklar |
-| Kaydırdığın yöne kes | Sağ yarıda kaydır: sağa → yatay, aşağı → tepeden, yukarı → aşağıdan | Fareyle sürükle |
-| Kes | Sağ yarıya dokun (sırayla farklı açılar) | Tıkla, `J` veya `Boşluk` |
-| Tepeden / aşağıdan kes | — | `K` / `L` |
-| Yeniden başlat · Ses | Sağ üstteki düğmeler | `R` · `M` |
+Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürükle (bilgisayarda fareyle sürükle ya da `W` `A` `S` `D`).
 
-Kamera en yakın düşmana kilitlenir: kaydırma yönü ekrana göredir, yani karaktere göre de doğrudur.
+- **Yön = kolların ve kılıcın baktığı yer.** İleri itersen kılıcı öne tutar, sağa çekersen kollar ve kılıç sağa döner. Gövde arkadan gelir.
+- **Az itersen** yerinde durup sadece kılıcı çevirir. **Çok itersen** o yöne koşar.
+- **Kesmek için hızlı çevir.** Joystick'i bir yandan öbür yana hızlıca savurursan kılıç savrulur ve değdiği yeri keser. Yavaş dönen ya da düşmana uzatılmış kılıç kesmez, sadece iter.
+- Hızlı savuruşta bıçak göğüs hizasına iner (gövde, kollar). Daha yavaş savuruşta yukarıda kalır (boyun, kafa).
+- Yeniden başlat ve ses: sağ üstteki düğmeler (`R` · `M`).
+
+Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick yönleri ayağının altından kaymasın.
 
 ## Oyun
 
-- **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. Kafa, gövde ya da bacak kesilirse düşman ölür. Kol kesilirse silahı düşebilir ve panikle kaçar; onu da yakalayıp bitirmen gerekir.
+- **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. Kafa, gövde ya da bacak kesilirse düşman ölür. Kol kesilirse silahı düşebilir ve panikle kaçar; silahsız kaçan düşmana kılıcın değmesi (dürtme dahil) yeter.
 - **Savunma:** Kılıçlar birbirine çarpar. İki saldırı çakışırsa **KLANG!** olur, ikiniz de sendelersiniz. Bekleyen kılıcına gelen darbeyi bazen **BLOK**larsın. Düşmanlar seviye ilerledikçe daha sık bloklar, geri sıçrar, karşı saldırı yapar ve etrafını sararak yandan ya da arkadan gelir.
 - **Can:** 3 kalp. Can seviyeden seviyeye taşınır; temizlenen her seviye +1 kalp verir. Ölürsen seviye tam canla yeniden başlar.
 - **Ortamlar** sırayla döner:

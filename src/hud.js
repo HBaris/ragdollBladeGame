@@ -87,31 +87,21 @@ export class Hud {
     c.clearRect(0, 0, this.W, this.H);
     const u = clamp(Math.min(this.W, this.H) / 400, 0.8, 1.6);
 
-    // Kaydırma izi
-    const tr = input.trail;
-    if (tr.length > 1) {
-      c.lineCap = 'round';
-      for (let i = 1; i < tr.length; i++) {
-        const a = 1 - tr[i].a / 0.18;
-        c.strokeStyle = `rgba(255,255,255,${(a * 0.7).toFixed(3)})`;
-        c.lineWidth = 6 * a * u;
-        c.beginPath(); c.moveTo(tr[i - 1].x, tr[i - 1].y); c.lineTo(tr[i].x, tr[i].y); c.stroke();
-      }
-    }
-
-    // Joystick
-    if (input.touchMode) {
-      const st = input.stick;
-      const bx = st.id !== null ? st.ox : 90 * u, by = st.id !== null ? st.oy : this.H - 110 * u;
-      c.globalAlpha = st.id !== null ? 0.5 : 0.22;
+    // Yüzen joystick: dokunduğun yerde belirir. Dokunulmuyorsa altta silik bir ipucu.
+    const st = input.stick;
+    if (st.id !== null || (input.touchMode && hintT > 0)) {
+      const R = input.stickR;
+      const active = st.id !== null;
+      const bx = active ? st.ox : this.W / 2, by = active ? st.oy : this.H - 120 * u;
+      c.globalAlpha = active ? 0.45 : 0.25 * clamp(hintT, 0, 1);
       c.strokeStyle = '#fff'; c.fillStyle = '#fff'; c.lineWidth = 3;
-      c.beginPath(); c.arc(bx, by, 48 * u, 0, Math.PI * 2); c.stroke();
+      c.beginPath(); c.arc(bx, by, R, 0, Math.PI * 2); c.stroke();
       let kx = bx, ky = by;
-      if (st.id !== null) {
-        const dx = st.x - st.ox, dy = st.y - st.oy, l = Math.hypot(dx, dy), m = Math.min(l, 48 * u) / (l || 1);
+      if (active) {
+        const dx = st.x - st.ox, dy = st.y - st.oy, l = Math.hypot(dx, dy), m = Math.min(l, R) / (l || 1);
         kx += dx * m; ky += dy * m;
       }
-      c.beginPath(); c.arc(kx, ky, 22 * u, 0, Math.PI * 2); c.fill();
+      c.beginPath(); c.arc(kx, ky, R * 0.42, 0, Math.PI * 2); c.fill();
       c.globalAlpha = 1;
     }
 
@@ -150,9 +140,9 @@ export class Hud {
       c.strokeStyle = 'rgba(0,0,0,0.35)';
       c.lineWidth = 3;
       const lines = input.touchMode
-        ? ['Sol: sürükle ve koş', 'Sağ: kaydır = o yöne kes · dokun = kes']
-        : ['WASD koş', 'Fareyle sürükle = o yöne kes · tıkla / J = kes'];
-      lines.forEach((l, i) => { const y = this.H * 0.78 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
+        ? ['Parmağını sürükle: kılıç o yöne döner', 'Az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES']
+        : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
+      lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
     }
   }

@@ -1,4 +1,4 @@
-import { GRAVITY, clamp, lerp, rand, pick, damp, easeOutQuad, easeInOut, angApproach } from './util.js';
+import { GRAVITY, clamp, lerp, rand, pick, damp, easeOutQuad, easeInOut, angApproach, wrapAngle } from './util.js';
 import { Ragdoll, J, JOINTS, dims } from './ragdoll.js';
 import { makePose, blendPose, approachPose, POSES, poseFK, ik2 } from './pose.js';
 import { createSwordMesh, BLADE_START } from './sword.js';
@@ -6,8 +6,13 @@ import { CharacterView } from './view.js';
 
 export const PLAYER_SPEED = 4.6;
 export const BLADE_LEN = 0.95;
-const A0 = -1.95, A1 = 1.7; // savuruş yayı (radyan), kaydırma yönünde
+const A0 = -1.95, A1 = 1.7; // düşman savuruş yayı (radyan)
 const STRIDE = 1.5;
+// Oyuncunun kılıcı joystick yönüne yayla döner. Yeterince hızlı dönerken keser.
+const AIM_K = 230, AIM_C = 23, AIM_MAXW = 15;
+export const ACTIVE_W = 3.2;   // bu açısal hızın (rad/s) üstünde bıçak keser
+const ACTIVE_END = 2.2;
+const MAX_ARM_LEAD = 2.0;      // kılıç gövdenin en fazla bu kadar önüne geçebilir (rad)
 
 // Düşman savuruşları: bıçak ucunun gideceği yön (yerel x sağ, y yukarı).
 const ENEMY_SWINGS = [[1, 0], [-1, 0], [0, -1], [0.7, -0.7], [-0.7, -0.7], [0.75, 0.5], [-0.75, 0.5]];
@@ -38,6 +43,8 @@ export class Character {
     this.flash = 0; this.invuln = 0; this.hurtT = 0; this.kb = 0; this.stun = 0;
     this.blockT = 0; this.blockUx = 0; this.blockUy = 0; this.counterT = 0;
     this.swing = null;
+    // Oyuncu kılıcı: hedef yön (aimYaw), gerçek yön (swYaw), açısal hız (swW), kesme dalgası (episode).
+    this.aimYaw = this.yaw; this.swYaw = this.yaw; this.swW = 0; this.episode = null; this.pokeCd = 0;
     this.state = 'approach';
     this.timer = rand(0.6, 1.2);
     this.cool = rand(0.3, 0.9) * lerp(1, 0.35, this.skill);
@@ -100,9 +107,16 @@ export class Character {
     this.stun = Math.max(0, this.stun - dt);
     this.blockT = Math.max(0, this.blockT - dt);
     this.counterT = Math.max(0, this.counterT - dt);
-    if (this.isPlayer) this.thinkPlayer(); else this.thinkEnemy(dt);
+    this.pokeCd = Math.max(0, this.pokeCd - dt);
+    if (this.isPlayer) { this.thinkPlayer(); this.updateAim(dt); } else this.thinkEnemy(dt);
     this.move(dt);
     if (!this.alive) return;
+    if (this.isPlayer) {
+      // Kollar gövdenin önüne geçebilir ama sınırsız değil: gövde arkadan gelir.
+      const rel = wrapAngle(this.swYaw - this.yaw);
+      if (rel > MAX_ARM_LEAD) this.yaw = this.swYaw - MAX_ARM_LEAD;
+      else if (rel < -MAX_ARM_LEAD) this.yaw = this.swYaw + MAX_ARM_LEAD;
+    }
     if (this.swing) {
       this.swing.t += dt;
       const s = this.swing;
@@ -142,33 +156,41 @@ export class Character {
     return 3;
   }
 
-  // Vuruşların sayıldığı an: aktif savuruş (+ küçük tolerans).
+  // Vuruşların sayıldığı an. Düşman: savuruşun aktif kısmı. Oyuncu: kılıç hızlı dönerken.
   get swingActive() {
+    if (this.isPlayer) return !!this.episode;
     const s = this.swing;
     return !!s && s.t > s.wind && s.t <= s.wind + s.dur + 0.02;
   }
 
+  // Tek kontrol joystick: yönü kılıcın/kolların baktığı yer, itme miktarı koşu hızı.
+  // Az itmek sadece kılıcı çevirir; çok itmek o yöne koşturur.
   thinkPlayer() {
     const g = this.game, inp = g.input;
     const mv = inp.move();
     const cs = Math.sin(g.camYaw), cc = Math.cos(g.camYaw);
     // Kamera ileri = (sin, 0, cos), sağ = (-cos, 0, sin).
     const wx = cs * mv.y - cc * mv.x, wz = cc * mv.y + cs * mv.x;
-    this.want.x = wx * PLAYER_SPEED;
-    this.want.z = wz * PLAYER_SPEED;
-    const tgt = g.nearestEnemy(this, 14);
-    let face = null;
-    if (tgt) {
-      const dist = Math.hypot(tgt.x - this.x, tgt.z - this.z);
-      if (dist < 5 || mv.mag < 0.1 || this.swing) face = Math.atan2(tgt.x - this.x, tgt.z - this.z);
-    }
-    if (face === null && mv.mag > 0.1) face = Math.atan2(wx, wz);
-    if (face !== null) this.faceYaw = face;
-    const req = inp.takeSwing();
-    if (req) {
-      if (this.canSwing()) this.startSwing(req.x, req.y, true);
-      else inp.requeue(req);
-    }
+    const l = Math.hypot(wx, wz) || 1;
+    const run = clamp((mv.mag - 0.4) / 0.45, 0, 1) * PLAYER_SPEED;
+    this.want.x = wx / l * run;
+    this.want.z = wz / l * run;
+    if (mv.mag > 0.18 && this.stun <= 0) this.aimYaw = Math.atan2(wx, wz);
+  }
+
+  updateAim(dt) {
+    const err = wrapAngle(this.aimYaw - this.swYaw);
+    this.swW = clamp(this.swW + (AIM_K * err - AIM_C * this.swW) * dt, -AIM_MAXW, AIM_MAXW);
+    this.swYaw = wrapAngle(this.swYaw + this.swW * dt);
+    this.faceYaw = this.swYaw;
+    // Her yöne dönüş yeni bir "savuruş": aynı düşman bir savuruşta bir kez kesilir.
+    const a = Math.abs(this.swW), dir = Math.sign(this.swW);
+    if (a > ACTIVE_W && this.hasSword) {
+      if (!this.episode || this.episode.dir !== dir) {
+        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir, ux: -dir, uy: 0 };
+        this.game.onSwingStart(this);
+      }
+    } else if (a < ACTIVE_END) this.episode = null;
   }
 
   thinkEnemy(dt) {
@@ -180,7 +202,7 @@ export class Character {
     if (g.time < 0.8) return; // seviye başında kısa bir nefes
     this.timer -= dt;
     this.cool -= dt;
-    const engage = 1.3 * this.S;
+    const engage = 1.55 * this.S;
     if (!pl.alive && this.state !== 'panic') this.state = 'cheer';
     switch (this.state) {
       case 'approach':
@@ -264,7 +286,7 @@ export class Character {
       if (!this.falling && this.y <= 0) { this.y = 0; this.vy = 0; }
     }
     if (this.falling && this.y < -0.9) this.game.onFell(this);
-    const turn = (this.isPlayer ? 14 : 7) * dt;
+    const turn = (this.isPlayer ? 8 : 7) * dt;
     this.yaw = angApproach(this.yaw, this.faceYaw, turn);
     const sp = Math.hypot(this.vx, this.vz);
     const back = this.vx * this.forwardX + this.vz * this.forwardZ < -0.3 * sp ? -1 : 1;
@@ -282,7 +304,12 @@ export class Character {
     // Savuruşun gövdeye etkisi: burulma ve hamle adımı.
     const mode = this.swingMode(), s = this.swing;
     let twist = 0, lunge = 0;
-    if (mode) {
+    if (this.isPlayer) {
+      // Omuzlar kılıcın yönüne burulur, hızlı savuruşta öne eğilir.
+      const rel = wrapAngle(this.yaw - this.swYaw);
+      P.twist = clamp(rel * 0.75, -1.1, 1.1);
+      P.lean += clamp(Math.abs(this.swW) / 15, 0, 1) * 0.15;
+    } else if (mode) {
       const tw = (a) => s.ux * Math.sin(a) * 0.55;
       if (mode === 1) { const e = easeInOut(s.t / s.wind); twist = tw(s.a0) * e; lunge = e * 0.5; }
       else if (mode === 2) { const e = easeOutQuad((s.t - s.wind) / s.dur); twist = tw(lerp(s.a0, s.a1, e)); lunge = 1; }
@@ -293,7 +320,7 @@ export class Character {
     }
     if (this.hurtT > 0 || this.stun > 0) { P.lean = -0.25; P.headP = 0.3; }
     if (this.state === 'cheer' && !this.isPlayer) { P.lean = -0.1; P.headP = -0.4; }
-    approachPose(this.pose, P, damp(mode === 2 ? 28 : 12, dt));
+    approachPose(this.pose, P, damp(mode === 2 || this.isPlayer ? 24 : 12, dt));
     poseFK(this.pose, this.d, this.local, this.footR);
     this.computeSword(dt);
     this.applyArms();
@@ -325,7 +352,17 @@ export class Character {
       outG[0] = cx + outD[0] * R; outG[1] = cy + outD[1] * R; outG[2] = cz + outD[2] * R;
     };
     const d = this.ld, w = this.lw, g = this.lg;
-    if (this.blockT > 0 && !mode) {
+    if (this.isPlayer && this.hasSword) {
+      // Kılıç joystick yönüne bakar; hızlı dönerken göğüs hizasına iner, yavaşken yukarı çapraz durur.
+      const rel = wrapAngle(this.yaw - this.swYaw);
+      const spd = clamp(Math.abs(this.swW) / 7, 0, 1);
+      const pitch = lerp(0.45, 0.02, spd) + Math.sin(this.phase) * 0.03;
+      const sr = Math.sin(rel), cr = Math.cos(rel), cp = Math.cos(pitch);
+      d[0] = sr * cp; d[1] = Math.sin(pitch); d[2] = cr * cp;
+      w[0] = cr; w[1] = 0; w[2] = -sr;
+      const reach = (0.33 + spd * 0.07) * S;
+      g[0] = cx + sr * reach; g[1] = cy - 0.1 * S; g[2] = cz - 0.1 * S + cr * reach;
+    } else if (this.blockT > 0 && !mode) {
       // Blok: gelen kılıca dik tut. Dikey savuruşa yatay, yatay savuruşa dikey.
       if (Math.abs(this.blockUy) > Math.abs(this.blockUx)) { d[0] = 1; d[1] = 0.15; d[2] = 0.2; g[0] = cx - 0.3 * S; g[1] = cy + 0.38 * S; g[2] = cz + 0.22 * S; }
       else { d[0] = 0.1; d[1] = 1; d[2] = 0.15; g[0] = cx + this.blockUx * 0.3 * S; g[1] = cy - 0.05 * S; g[2] = cz + 0.3 * S; }
@@ -400,6 +437,7 @@ export class Character {
     if (!this.alive) return;
     this.alive = false;
     this.swing = null;
+    this.episode = null;
     this.deathT = this.game.time;
     this.rag.kill();
     if (this.hasSword) this.game.dropSword(this);

@@ -304,6 +304,13 @@ export class Game {
   }
 
   cancelSwing(c) {
+    if (c.isPlayer) {
+      // Oyuncunun kılıcı çarptığı yerden geri seker.
+      c.swW = -c.swW * 0.5;
+      c.aimYaw = c.swYaw;
+      c.episode = null;
+      return;
+    }
     const s = c.swing;
     if (!s) return;
     const mode = c.swingMode();
@@ -336,8 +343,9 @@ export class Game {
       const z0 = Math.min(pb.bz, pb.tz, cb.bz, cb.tz) - 0.2, z1 = Math.max(pb.bz, pb.tz, cb.bz, cb.tz) + 0.2;
       const targets = a.isPlayer ? this.enemies : [this.player];
       for (const o of targets) {
-        if (!a.swing) break;
-        if (a.swing.hits.has(o)) continue;
+        const ep = a.isPlayer ? a.episode : a.swing;
+        if (!ep) break;
+        if (ep.hits.has(o)) continue;
         if (!a.isPlayer && !o.alive) continue;
         const bb = o.rag.bounds(this._bb);
         if (bb.x1 < x0 || bb.x0 > x1 || bb.y1 < y0 || bb.y0 > y1 || bb.z1 < z0 || bb.z0 > z1) continue;
@@ -346,8 +354,8 @@ export class Game {
           const pt = sweepBlade(pb, cb, o.bCur, 3, 0.05);
           if (pt) {
             if (o.swingActive) { this.parry(a, o, pt); break; }
-            if (o.isPlayer && !a.swing.rolled.has(o)) {
-              a.swing.rolled.add(o);
+            if (o.isPlayer && !ep.rolled.has(o)) {
+              ep.rolled.add(o);
               if (Math.random() < 0.35) { this.block(a, o, pt); break; }
             }
           }
@@ -355,17 +363,17 @@ export class Game {
         const hit = sweepRagdoll(o.rag, pb, cb, 4);
         if (!hit) continue;
         // Düşman, vuruş kendisine ulaşmadan kılıcıyla karşılayabilir (seviye arttıkça daha sık).
-        if (!o.isPlayer && o.alive && o.hasSword && o.stun <= 0 && !o.swing && o.state !== 'panic' && !a.swing.rolled.has(o)) {
-          a.swing.rolled.add(o);
+        if (!o.isPlayer && o.alive && o.hasSword && o.stun <= 0 && !o.swing && o.state !== 'panic' && !ep.rolled.has(o)) {
+          ep.rolled.add(o);
           if (Math.random() < lerp(0.12, 0.65, o.skill)) {
             o.blockT = 0.35;
-            o.blockUx = a.swing.ux; o.blockUy = a.swing.uy;
+            o.blockUx = ep.ux; o.blockUy = ep.uy;
             o.counterT = 0.3;
             this.block(a, o, hit);
             break;
           }
         }
-        a.swing.hits.add(o);
+        ep.hits.add(o);
         let vx = lerp(cb.bx - pb.bx, cb.tx - pb.tx, hit.t) / h;
         let vy = lerp(cb.by - pb.by, cb.ty - pb.ty, hit.t) / h;
         let vz = lerp(cb.bz - pb.bz, cb.tz - pb.tz, hit.t) / h;
@@ -373,6 +381,31 @@ export class Game {
         vx = vx / sp * m; vy = vy / sp * m; vz = vz / sp * m;
         this.onHit(a, o, hit, vx, vy, vz);
       }
+    }
+    this.poke();
+  }
+
+  // Yavaş dönen / ileri uzatılmış kılıç kesmez, düşmanı iter (bıçak gövdeye gömülmesin).
+  poke() {
+    const a = this.player;
+    if (!a.alive || !a.hasSword || a.swingActive || a.pokeCd > 0) return;
+    for (const o of this.enemies) {
+      if (!o.alive || o.kb > 0) continue;
+      const hit = sweepRagdoll(o.rag, a.bPrev, a.bCur, 2);
+      if (!hit) continue;
+      if (o.state === 'panic') {
+        // Silahsız kaçan düşman dürtmeyle de şişlenir; yoksa itip durursun, yakalayamazsın.
+        this.fx.popup(o.x, 2.3 * o.S, o.z, 'ŞİŞLENDİ!', '#ffd23f', 22, 1.1);
+        this.onHit(a, o, hit, a.sw.dx * 7, a.sw.dy * 7, a.sw.dz * 7);
+        if (o.alive) this.killEnemy(o, a, null, a.sw.dx * 7, 1, a.sw.dz * 7);
+        a.pokeCd = 0.2;
+        break;
+      }
+      this.knock(o, a.sw.dx, a.sw.dz, 2.4);
+      this.knock(a, -a.sw.dx, -a.sw.dz, 1.0);
+      a.pokeCd = 0.35;
+      Sfx.punch();
+      break;
     }
   }
 
@@ -511,9 +544,10 @@ export class Game {
       else if (res.kind === 'torso') this.fx.popup(o.x, y, o.z, 'İKİYE BÖLÜNDÜ!', '#ffd23f', 26, 1.2);
       else if (res.kind === 'leg') this.fx.popup(o.x, y, o.z, 'BACAKSIZ!', '#ffd23f', 24, 1.2);
     }
-    if (a && a.swing) {
-      a.swing.kills++;
-      if (a.swing.kills >= 2) this.fx.popup(a.x, 2.6, a.z, a.swing.kills === 2 ? 'ÇİFTE!' : 'KATLİAM!', '#ff5a36', 30, 1.3);
+    const ep = a ? (a.isPlayer ? a.episode : a.swing) : null;
+    if (ep) {
+      ep.kills++;
+      if (ep.kills >= 2) this.fx.popup(a.x, 2.6, a.z, ep.kills === 2 ? 'ÇİFTE!' : 'KATLİAM!', '#ff5a36', 30, 1.3);
     }
     Sfx.combo(3);
     this.shake(0.12);
@@ -566,7 +600,9 @@ export class Game {
     if (t && pl.alive) yawT = Math.atan2(t.x - fx, t.z - fz);
     else if (pl.alive && Math.hypot(pl.vx, pl.vz) > 1) yawT = pl.yaw;
     else if (!pl.alive) yawT = this.camYaw + dt * 0.3;
-    this.camYaw = snap ? yawT : this.camYaw + wrapAngle(yawT - this.camYaw) * damp(t ? 3.5 : 1.5, dt);
+    // Yakın dövüşte kamera yavaş döner ki joystick yönleri ayağının altından kaymasın.
+    const close = t && Math.hypot(t.x - fx, t.z - fz) < 2.4;
+    this.camYaw = snap ? yawT : this.camYaw + wrapAngle(yawT - this.camYaw) * damp(close ? 0.6 : t ? 2.5 : 1.2, dt);
     const portrait = this.H > this.W;
     const dist = portrait ? 4.0 : 4.1, height = portrait ? 3.5 : 2.6;
     const s = Math.sin(this.camYaw), c = Math.cos(this.camYaw);
