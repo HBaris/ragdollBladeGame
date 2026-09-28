@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { hash, rand, clamp } from './util.js';
+import { hash, rand, clamp, GRAVITY } from './util.js';
 
-// Üç ortam: çayır, buz sahanlığı (düşersen suya), gün batımı dojo.
+// Dört ortam: çayır, buz sahanlığı (düşersen suya), gün batımı dojo ve gökyüzünde
+// halatlarla asılı platform (halat kesilirse yan yatar).
 // Tüm dokular açılışta canvas ile üretilir; dışarıdan dosya yüklenmez.
 
 function canvasTex(w, h, draw, repeat) {
@@ -206,6 +207,104 @@ function scatter(geo, mat, count, rMin, rMax, sMin, sMax, avoid) {
   return im;
 }
 
+// Beton zemin: açık gri, 1 m'lik ızgara çizgileri.
+function gridTexture(g, w, h) {
+  g.fillStyle = '#cfd3d8';
+  g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 2600; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.07)';
+    g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+  }
+  g.strokeStyle = '#a3a9b0';
+  g.lineWidth = 3;
+  const n = 4, c = w / n;
+  for (let i = 0; i <= n; i++) {
+    g.beginPath(); g.moveTo(i * c, 0); g.lineTo(i * c, h); g.stroke();
+    g.beginPath(); g.moveTo(0, i * c); g.lineTo(w, i * c); g.stroke();
+  }
+}
+
+// Kırmızı-beyaz çapraz şerit (silindire sarılınca sarmal çizgi olur). Döşenebilir.
+function stripeTexture(g, w, h) {
+  g.fillStyle = '#f3efe8';
+  g.fillRect(0, 0, w, h);
+  g.fillStyle = '#d7262d';
+  for (let o = -w; o <= 2 * w; o += w / 2) {
+    g.beginPath();
+    g.moveTo(o, 0); g.lineTo(o + w / 4, 0); g.lineTo(o + w / 4 - h, h); g.lineTo(o - h, h);
+    g.closePath(); g.fill();
+  }
+}
+
+const STRIPE_PITCH = 0.45; // şerit dokusunun halat boyunca tekrar boyu (m)
+const TUBE_RAD = 8;
+
+// Konumları her kare yeniden hesaplanan esnek boru (kopan halatın yere yığılan parçası).
+function tubeGeometry(rings, seg) {
+  const g = new THREE.BufferGeometry();
+  const n = rings * (TUBE_RAD + 1);
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  const uv = new Float32Array(n * 2), idx = [];
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j <= TUBE_RAD; j++) {
+      const k = i * (TUBE_RAD + 1) + j;
+      uv[k * 2] = j / TUBE_RAD; uv[k * 2 + 1] = i * seg / STRIPE_PITCH;
+      if (i < rings - 1 && j < TUBE_RAD) {
+        const b = k + TUBE_RAD + 1;
+        idx.push(k, b, k + 1, b, b + 1, k + 1);
+      }
+    }
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+const _t = new THREE.Vector3(), _n = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
+
+function updateTube(geo, P, r) {
+  const pos = geo.attributes.position.array, nrm = geo.attributes.normal.array;
+  const last = P.length - 1;
+  for (let i = 0; i <= last; i++) {
+    const a = P[Math.max(0, i - 1)], b = P[Math.min(last, i + 1)];
+    _t.set(b.x - a.x, b.y - a.y, b.z - a.z);
+    if (_t.lengthSq() < 1e-10) _t.set(0, 1, 0);
+    _t.normalize();
+    // Paralel taşıma: halka çerçevesi boru boyunca bükülmeden ilerler.
+    if (i === 0) { _n.crossVectors(_t, _d.set(1, 0, 0)); if (_n.lengthSq() < 1e-6) _n.crossVectors(_t, _d.set(0, 0, 1)); }
+    else _n.addScaledVector(_t, -_t.dot(_n));
+    _n.normalize();
+    _b.crossVectors(_t, _n);
+    const p = P[i];
+    for (let j = 0; j <= TUBE_RAD; j++) {
+      const ang = j / TUBE_RAD * Math.PI * 2, c = Math.cos(ang), s = Math.sin(ang);
+      const k = (i * (TUBE_RAD + 1) + j) * 3;
+      const nx = _n.x * c + _b.x * s, ny = _n.y * c + _b.y * s, nz = _n.z * c + _b.z * s;
+      nrm[k] = nx; nrm[k + 1] = ny; nrm[k + 2] = nz;
+      pos[k] = p.x + nx * r; pos[k + 1] = p.y + ny * r; pos[k + 2] = p.z + nz * r;
+    }
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.attributes.normal.needsUpdate = true;
+}
+
+// Silindiri a'dan b'ye uzatır (geometri tabanı 0'da, boyu L0).
+function placeRope(mesh, L0, ax, ay, az, bx, by, bz) {
+  _d.set(bx - ax, by - ay, bz - az);
+  const len = _d.length() || 1e-3;
+  mesh.position.set(ax, ay, az);
+  mesh.scale.set(1, len / L0, 1);
+  mesh.quaternion.setFromUnitVectors(_up, _d.multiplyScalar(1 / len));
+}
+
+// Platformu tutan halatlar (x, z): köşeler, kenarlar ve dövüşün döndüğü ortada 3 m'lik bir
+// halka. Çiftler merkeze göre simetrik: hepsi sağlamken platform düz durur.
+const ROPE_LAYOUT = [[5.3, 5.3], [-5.3, 5.3], [5.3, -5.3], [-5.3, -5.3], [6.0, 0.8], [-6.0, -0.8], [-2, 6.0], [2, -6.0]];
+for (let i = 0; i < 6; i++) { const a = (20 + i * 60) * Math.PI / 180; ROPE_LAYOUT.push([+(Math.sin(a) * 3).toFixed(2), +(Math.cos(a) * 3).toFixed(2)]); }
+const TILT_K = 1.6, TILT_MAX = 0.42; // halat ağırlık merkezi kaydıkça eğim (dy/dx)
+
 function skyDome() {
   const mat = new THREE.ShaderMaterial({
     uniforms: { top: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, bottom: { value: new THREE.Color() } },
@@ -268,10 +367,13 @@ export class World {
     scene.add(sun, sun.target);
     this.sun = sun;
     this.sunDir = new THREE.Vector3(0.5, 1, 0.35).normalize();
+    // Platform eğimi: zemin y = gx*x + gz*z (yaylı, sallanır).
+    this.gx = 0; this.gz = 0; this.gvx = 0; this.gvz = 0; this.tgx = 0; this.tgz = 0;
     this.envs = {
       meadow: this.buildMeadow(),
       ice: this.buildIce(),
       dojo: this.buildDojo(),
+      roof: this.buildRoof(),
     };
     for (const e of Object.values(this.envs)) { e.group.visible = false; scene.add(e.group); }
     this.env = null;
@@ -300,19 +402,55 @@ export class World {
     this.sunDir.set(e.sun[2], e.sun[3], e.sun[4]).normalize();
     this.waterY = e.waterY;
     this.canFall = e.canFall;
+    this.wallH = e.wallH || 0;          // alçak kenar duvarı (platform)
+    this.overSpeed = e.overSpeed || 0;  // duvarın üstünden devrilmek için gereken hız
+    this.fallDepth = e.fallDepth || 0.9;
+    this.gx = this.gz = this.gvx = this.gvz = this.tgx = this.tgz = 0;
+    if (e.roof) this.resetRoof();
   }
+
+  // Platform seviyesinde lekeler platformun yerel uzayında tutulur (yan yatınca onunla gider).
+  get decalLocal() { return !!(this.env && this.env.roof); }
+  get ropes() { return this.env && this.env.roof ? this.env.ropes : null; }
+  get tilt() { return Math.hypot(this.tgx, this.tgz); }
 
   // Zemin yüksekliği; zemin yoksa (buzun dışı) -Infinity.
   ground(x, z) {
     const e = this.env;
+    if (e.roof) return Math.abs(x) <= e.half && Math.abs(z) <= e.half ? this.gx * x + this.gz * z : -Infinity;
     if (!e.floe) return 0;
     return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) ? 0 : -Infinity;
   }
 
   inside(x, z, m) {
     const e = this.env;
+    if (e.roof) return Math.abs(x) < e.inner - m && Math.abs(z) < e.inner - m;
     if (e.floe) return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) - m;
     return Math.hypot(x, z) < this.radius - m;
+  }
+
+  // Sınırı aşan hareketi sınıra izdüşürür ve duvara giden hız bileşenini siler (c: karakter).
+  // Sınıra yapışıp kalmayı önler. Buz sahanlığında false döner (eski eksen denemesi kalır).
+  clampInside(x, z, m, c) {
+    const e = this.env;
+    if (e.floe) return false;
+    if (e.roof) {
+      const L = e.inner - m - 1e-3;
+      if (Math.abs(x) > L) { x = Math.sign(x) * L; c.vx = 0; c.slideX = 0; }
+      if (Math.abs(z) > L) { z = Math.sign(z) * L; c.vz = 0; c.slideZ = 0; }
+    } else {
+      const R = Math.hypot(x, z), lim = this.radius - m - 1e-3;
+      if (R > lim) {
+        const nx = x / R, nz = z / R;
+        x = nx * lim; z = nz * lim;
+        const vo = c.vx * nx + c.vz * nz;
+        if (vo > 0) { c.vx -= nx * vo; c.vz -= nz * vo; }
+        const so = c.slideX * nx + c.slideZ * nz;
+        if (so > 0) { c.slideX -= nx * so; c.slideZ -= nz * so; }
+      }
+    }
+    c.x = x; c.z = z;
+    return true;
   }
 
   // Buz sahanlığının sınırı: köşeli çokgenin verilen açıdaki yarıçapı.
@@ -344,6 +482,7 @@ export class World {
     this.t += dt;
     this.sky.position.copy(camPos);
     if (this.env.water) this.env.water.material.uniforms.time.value = this.t;
+    if (this.env.roof) this.renderRoof(camPos);
     for (const c of this.env.clouds || []) {
       c.position.x += dt * 0.6;
       if (c.position.x > 220) c.position.x = -220;
@@ -363,6 +502,209 @@ export class World {
       list.push(s);
     }
     return list;
+  }
+
+  // ---------- halatlı platform ----------
+
+  resetRoof() {
+    const e = this.envs.roof;
+    for (const r of e.ropes) {
+      r.intact = true; r.up = null;
+      if (r.stub) { e.group.remove(r.stub.mesh); r.stub.mesh.geometry.dispose(); r.stub = null; }
+      r.mesh.visible = true;
+    }
+    this.renderRoof();
+  }
+
+  // Kalan halatların ağırlık merkezi ortadan kaydıkça platform halatsız tarafa yatar.
+  updateTilt() {
+    const e = this.env;
+    let n = 0, cx = 0, cz = 0;
+    for (const r of e.ropes) if (r.intact) { cx += r.x; cz += r.z; n++; }
+    if (n) { cx /= n; cz /= n; }
+    let tx = TILT_K * cx / e.half, tz = TILT_K * cz / e.half;
+    const m = Math.hypot(tx, tz);
+    if (m > TILT_MAX) { tx *= TILT_MAX / m; tz *= TILT_MAX / m; }
+    // Ani sarsıntı: hedefi biraz aşar, sallanarak oturur.
+    this.gvx += (tx - this.tgx) * 3; this.gvz += (tz - this.tgz) * 3;
+    this.tgx = tx; this.tgz = tz;
+  }
+
+  // hc: kesiğin zeminden yüksekliği. (vx, vz): bıçağın hızı (alt parça o yöne devrilir).
+  cutRope(r, hc, vx, vz) {
+    const e = this.env;
+    r.intact = false;
+    hc = clamp(hc, 0.3, 3.2);
+    const gy = this.ground(r.x, r.z);
+    // Alt parça: zemine bağlı kısa bir zincir; devrilip yere kıvrılır.
+    const n = Math.max(3, Math.round(hc / 0.2)), seg = hc / n;
+    const l = Math.hypot(vx, vz) || 1, kx = vx / l * 0.03, kz = vz / l * 0.03;
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+      const f = i / n, y = gy + hc * f;
+      pts.push({ x: r.x, y, z: r.z, px: r.x - kx * f, py: y, pz: r.z - kz * f });
+    }
+    const mesh = new THREE.Mesh(tubeGeometry(n + 1, seg), e.ropeMat);
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    e.group.add(mesh);
+    r.stub = { pts, seg, mesh };
+    updateTube(mesh.geometry, pts, r.r);
+    // Üst parça gergin olduğu için yukarı fırlar ve gökyüzünde kaybolur.
+    r.up = { y: gy + hc, len: r.top - (gy + hc), v: 0, t: 0, wx: kx / 0.03, wz: kz / 0.03 };
+    this.updateTilt();
+  }
+
+  // Simülasyon adımı: platform eğim yayı, kopan halat parçaları.
+  step(h) {
+    const e = this.env;
+    if (!e || !e.roof) return;
+    const K = 18, C = 3.4;
+    this.gvx += (K * (this.tgx - this.gx) - C * this.gvx) * h; this.gx += this.gvx * h;
+    this.gvz += (K * (this.tgz - this.gz) - C * this.gvz) * h; this.gz += this.gvz * h;
+    for (const r of e.ropes) {
+      if (r.up) {
+        r.up.t += h; r.up.v += 60 * h; r.up.y += r.up.v * h;
+        if (r.up.t > 2.5) r.up = null;
+      }
+      if (r.stub) this.stepStub(r, h);
+    }
+  }
+
+  stepStub(r, h) {
+    const P = r.stub.pts, seg = r.stub.seg, rad = r.r;
+    const p0 = P[0];
+    p0.x = r.x; p0.y = this.ground(r.x, r.z); p0.z = r.z;
+    for (let i = 1; i < P.length; i++) {
+      const p = P[i];
+      const vx = (p.x - p.px) * 0.99, vy = (p.y - p.py) * 0.99, vz = (p.z - p.pz) * 0.99;
+      p.px = p.x; p.py = p.y; p.pz = p.z;
+      p.x += vx; p.y += vy - GRAVITY * h * h; p.z += vz;
+    }
+    for (let it = 0; it < 6; it++) {
+      for (let i = 1; i < P.length; i++) {
+        const a = P[i - 1], b = P[i];
+        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, d = Math.hypot(dx, dy, dz) || 1e-6;
+        const f = (d - seg) / d, wa = i === 1 ? 0 : 0.5, wb = 1 - wa;
+        a.x += dx * f * wa; a.y += dy * f * wa; a.z += dz * f * wa;
+        b.x -= dx * f * wb; b.y -= dy * f * wb; b.z -= dz * f * wb;
+      }
+      for (let i = 1; i < P.length; i++) {
+        const p = P[i], g = this.ground(p.x, p.z);
+        if (p.y < g + rad) {
+          p.y = g + rad;
+          p.px = p.x - (p.x - p.px) * 0.8; p.pz = p.z - (p.z - p.pz) * 0.8;
+        }
+      }
+    }
+  }
+
+  renderRoof(cam) {
+    const e = this.env;
+    // Kayma (shear) matrisi: yerel (x, y, z) -> (x, y + gx*x + gz*z, z). Dikeyler dik kalır.
+    e.plat.matrix.set(1, 0, 0, 0, this.gx, 1, this.gz, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+    e.plat.matrixWorldNeedsUpdate = true;
+    for (const r of e.ropes) {
+      const m = r.mesh;
+      // Kameranın dibindeki halat ekranı kapatmasın: yaklaştıkça saydamlaşır.
+      const cd = cam ? Math.hypot(cam.x - r.x, cam.z - r.z) : 9;
+      const op = clamp((cd - 0.7) / 1.6, 0.12, 1);
+      m.material.opacity = op;
+      m.material.transparent = op < 1;
+      m.material.depthWrite = op >= 1;
+      if (r.intact) {
+        m.visible = true;
+        placeRope(m, r.L0, r.x, this.ground(r.x, r.z), r.z, r.x, r.top, r.z);
+      } else if (r.up) {
+        // Kopunca kırbaç gibi sallanarak yukarı çekilir.
+        const u = r.up, w = Math.sin(u.t * 24) * 0.6 * Math.exp(-u.t * 2.2);
+        m.visible = true;
+        placeRope(m, r.L0, r.x + u.wx * w, u.y, r.z + u.wz * w, r.x, u.y + u.len, r.z);
+      } else m.visible = false;
+      if (r.stub) updateTube(r.stub.mesh.geometry, r.stub.pts, r.r);
+    }
+  }
+
+  buildRoof() {
+    const group = new THREE.Group();
+    const plat = new THREE.Group();
+    plat.matrixAutoUpdate = false;
+    group.add(plat);
+    const half = 7, wallT = 0.3, wallH = 0.45;
+    const grid = canvasTex(256, 256, gridTexture);
+    grid.wrapS = grid.wrapT = THREE.RepeatWrapping;
+    grid.repeat.set(half * 2 / 4, half * 2 / 4);
+    const top = new THREE.MeshStandardMaterial({ map: grid, roughness: 0.85 });
+    const side = new THREE.MeshStandardMaterial({ color: 0x8d949c, roughness: 0.9 });
+    const under = new THREE.MeshStandardMaterial({ color: 0x5f666e, roughness: 0.9 });
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(half * 2, 0.8, half * 2), [side, side, top, under, side, side]);
+    slab.position.y = -0.4;
+    slab.receiveShadow = true;
+    slab.castShadow = true;
+    plat.add(slab);
+    // Alt kirişler (platform yan yatınca görünür).
+    for (const [w, d, x, z] of [[half * 2, 0.5, 0, -3.5], [half * 2, 0.5, 0, 3.5], [0.5, half * 2, -3.5, 0], [0.5, half * 2, 3.5, 0]]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), under);
+      b.position.set(x, -1.05, z);
+      plat.add(b);
+    }
+    // Alçak kenar duvarı
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xb2b8bf, roughness: 0.8 });
+    for (const [w, d, x, z] of [[half * 2, wallT, 0, half - wallT / 2], [half * 2, wallT, 0, -half + wallT / 2], [wallT, half * 2 - wallT * 2, half - wallT / 2, 0], [wallT, half * 2 - wallT * 2, -half + wallT / 2, 0]]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat);
+      m.position.set(x, wallH / 2, z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      plat.add(m);
+    }
+    // Halatlar
+    const stripe = canvasTex(64, 64, stripeTexture);
+    stripe.wrapS = stripe.wrapT = THREE.RepeatWrapping;
+    const ropeMat = new THREE.MeshStandardMaterial({ map: stripe, roughness: 0.55 });
+    const plateMat = new THREE.MeshStandardMaterial({ color: 0x4a5058, roughness: 0.4, metalness: 0.6 });
+    const ropes = [];
+    const R = 0.075, TOP = 46;
+    for (const [x, z] of ROPE_LAYOUT) {
+      const L0 = TOP;
+      const geo = new THREE.CylinderGeometry(R, R, L0, 10, 1, true).translate(0, L0 / 2, 0);
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * L0 / STRIPE_PITCH);
+      const mesh = new THREE.Mesh(geo, ropeMat.clone());
+      mesh.castShadow = true;
+      group.add(mesh);
+      const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.07, 14), plateMat);
+      plate.position.set(x, 0.035, z);
+      plate.receiveShadow = true;
+      plat.add(plate);
+      ropes.push({ x, z, r: R, top: TOP, L0, mesh, intact: true, stub: null, up: null });
+    }
+    // Aşağıda bulut denizi, uzakta sisin içinde gökdelen tepeleri.
+    const cloudTex = canvasTex(256, 128, cloudTexture);
+    const low = [];
+    for (let i = 0; i < 16; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, fog: false, transparent: true, depthWrite: false, opacity: 0.95 }));
+      const a = Math.random() * Math.PI * 2, r = rand(25, 150);
+      s.position.set(Math.cos(a) * r, rand(-48, -12), Math.sin(a) * r);
+      const sc = rand(40, 95);
+      s.scale.set(sc, sc * 0.45, 1);
+      group.add(s);
+      low.push(s);
+    }
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0x9fb4c9, roughness: 0.9 });
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2 + rand(-0.15, 0.15), r = rand(40, 120), w = rand(6, 13), topY = rand(-30, 5);
+      const t = new THREE.Mesh(new THREE.BoxGeometry(w, 200, w * rand(0.7, 1.3)), towerMat);
+      t.position.set(Math.cos(a) * r, topY - 100, Math.sin(a) * r);
+      t.rotation.y = rand(0, Math.PI);
+      group.add(t);
+    }
+    return {
+      group, plat, roof: true, half, inner: half - wallT, wallH, overSpeed: 5, fallDepth: 1.5,
+      ropes, ropeMat, radius: half - wallT, floe: null, water: null, waterY: -Infinity, canFall: true,
+      clouds: low.concat(this.clouds(group, 8, 170, 25, 70)),
+      sky: [0x3f8fe0, 0xd6e9f8, 0xf1f6fb], fog: [55, 240],
+      hemi: [0xeaf4ff, 0xa9b8c8, 1.1], sun: [0xffffff, 2.6, 0.4, 1, 0.5],
+    };
   }
 
   buildMeadow() {

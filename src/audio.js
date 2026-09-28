@@ -142,6 +142,21 @@ export const Sfx = (() => {
       const t = ac.currentTime;
       [523, 659, 784, 1047].forEach((f, i) => tone(t + i * 0.09, 0.22, 'triangle', f, f, 0.08));
     },
+    // Drift: kısa bir gıcırtı ve sürtünme.
+    skid() {
+      if (!ok('skid', 0.2)) return;
+      const t = ac.currentTime;
+      tone(t, 0.22, 'sine', rand(950, 1150), 720, 0.05);
+      nz(t, 0.25, 'bandpass', 2200, 1400, 2, 0.12);
+    },
+    // Gergin halat kopunca: kalın bir "tıng" ve şaklama.
+    twang() {
+      if (!ok('twang', 0.08)) return;
+      const t = ac.currentTime;
+      tone(t, 0.6, 'triangle', rand(170, 210), 70, 0.22);
+      tone(t, 0.35, 'sawtooth', 340, 120, 0.05);
+      nz(t, 0.07, 'highpass', 2500, 6000, 1, 0.35);
+    },
     heal() {
       if (!ok('heal', 0.2)) return;
       const t = ac.currentTime;

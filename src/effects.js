@@ -51,6 +51,7 @@ export class Effects {
     this.blood = new PointPool(scene, 2600, new THREE.PointsMaterial({ color: 0xc4001a, size: 0.05, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
     this.spark = new PointPool(scene, 400, new THREE.PointsMaterial({ color: 0xfff1a8, size: 0.06, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
     this.water = new PointPool(scene, 600, new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
+    this.dustPool = new PointPool(scene, 500, new THREE.PointsMaterial({ color: 0xe9e2d4, size: 0.11, map: tex, alphaTest: 0.5, sizeAttenuation: true, transparent: true, opacity: 0.75 }));
 
     this.maxDecals = 700;
     const dg = new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2);
@@ -74,6 +75,7 @@ export class Effects {
     this.blood.list.length = 0;
     this.spark.list.length = 0;
     this.water.list.length = 0;
+    this.dustPool.list.length = 0;
     this.bleeders.length = 0;
     this.popups.length = 0;
     this.decals.count = 0;
@@ -98,6 +100,18 @@ export class Effects {
     for (let i = 0; i < n; i++) {
       this.spark.add({ x, y, z, vx: rand(-5, 5), vy: rand(-2, 5), vz: rand(-5, 5), life: rand(0.15, 0.35) });
     }
+  }
+
+  // Drift tozu: ayağın altından geriye savrulan küçük bulut.
+  dust(x, y, z, vx, vz) {
+    for (let i = 0; i < 2; i++) {
+      this.dustPool.add({ x: x + rand(-0.08, 0.08), y: y + 0.03, z: z + rand(-0.08, 0.08), vx: vx + rand(-0.5, 0.5), vy: rand(0.3, 1.1), vz: vz + rand(-0.5, 0.5), life: rand(0.3, 0.6) });
+    }
+  }
+
+  // Lekeler yan yatabilen zemine (platform) yapışsın diye onun altına taşınabilir.
+  setDecalParent(obj) {
+    if (this.decals.parent !== obj) obj.add(this.decals);
   }
 
   splash(x, y, z) {
@@ -165,7 +179,7 @@ export class Effects {
       p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       const g = env.ground(p.x, p.z);
       if (p.y <= g + 0.01) {
-        if (Math.random() < 0.55) this.addDecal(p.x, g, p.z, rand(0.025, 0.07));
+        if (Math.random() < 0.55) this.addDecal(p.x, env.decalLocal ? 0 : g, p.z, rand(0.025, 0.07));
         continue;
       }
       if (p.y < env.waterY) continue;
@@ -173,13 +187,15 @@ export class Effects {
     }
     bl.length = w;
 
-    for (const pool of [this.spark, this.water]) {
+    for (const pool of [this.spark, this.water, this.dustPool]) {
       const L = pool.list;
       let k = 0;
       for (let i = 0; i < L.length; i++) {
         const p = L[i];
         p.life -= dt;
-        if (pool === this.spark) { p.vx *= 0.92; p.vz *= 0.92; p.vy -= 6 * dt; } else p.vy -= GRAVITY * 0.6 * dt;
+        if (pool === this.spark) { p.vx *= 0.92; p.vz *= 0.92; p.vy -= 6 * dt; }
+        else if (pool === this.dustPool) { const f = Math.exp(-3 * dt); p.vx *= f; p.vz *= f; p.vy *= f; }
+        else p.vy -= GRAVITY * 0.6 * dt;
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         if (p.life > 0) L[k++] = p;
       }
@@ -194,5 +210,6 @@ export class Effects {
     this.blood.flush();
     this.spark.flush();
     this.water.flush();
+    this.dustPool.flush();
   }
 }

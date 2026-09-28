@@ -20,6 +20,7 @@ export class Hud {
       <div id="settings" hidden>
         <button id="s-sound"></button>
         <button id="s-quality"></button>
+        <button id="s-roof">Platform seviyesine git</button>
         <button id="s-horse">At seviyesine git</button>
         <button id="s-titan">Titan seviyesine git</button>
         <button id="s-close">Kapat</button>
@@ -36,6 +37,7 @@ export class Hud {
     root.querySelector('#s-close').addEventListener('click', () => { this.settings.hidden = true; });
     root.querySelector('#s-sound').addEventListener('click', () => { game.toggleSound(); this.refreshSettings(); });
     root.querySelector('#s-quality').addEventListener('click', () => { game.toggleQuality(); this.refreshSettings(); });
+    root.querySelector('#s-roof').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('roof'); });
     root.querySelector('#s-horse').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('horse'); });
     root.querySelector('#s-titan').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titan'); });
     this.bannerT = 0;
@@ -170,6 +172,7 @@ export class Hud {
         : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
       if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Uçarken kılıç değdiği yeri keser'];
       if (mode === 'horse') lines = ['Sürükle: at o yöne döner, kılıç da', 'Çok it = dörtnala · hızlı çevir = KES', 'At önündekini ezer'];
+      if (mode === 'roof') lines = ['Halatlar platformu tutuyor', 'Kesersen platform yan yatar, herkes kayar', 'Kenardan düşen ölür'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
     }

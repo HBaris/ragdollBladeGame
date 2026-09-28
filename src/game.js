@@ -16,8 +16,8 @@ const PLAYER_COLOR = 0xffa51f;
 const ENEMY_COLOR = 0xa51cff;
 const BOSS_COLOR = 0x6a12c2;
 const TITAN_COLOR = 0xb45cf0;
-const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo' };
-const LEVEL_CYCLE = ['duel', 'duel', 'horse', 'duel', 'boss', 'titan'];
+const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform' };
+const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'horse', 'duel', 'boss', 'roof', 'titan'];
 const DEATH_QUIPS = [
   'Ragdoll fiziği 1 — Sen 0',
   'Parçalarını toplamak biraz sürecek.',
@@ -25,11 +25,14 @@ const DEATH_QUIPS = [
   'Hiç değilse güzel uçtun.',
 ];
 
-// Seviye tasarımı: düello, düello, at, düello, boss, titan döngüsü; zorluk yavaşça artar.
+// Seviye tasarımı: düello, düello, platform, at, düello, boss, platform, titan döngüsü;
+// zorluk yavaşça artar.
 export function levelSpec(n) {
   const type = LEVEL_CYCLE[(n - 1) % LEVEL_CYCLE.length];
   const round = Math.floor((n - 1) / LEVEL_CYCLE.length);
   const skill = clamp((n - 1) / 24, 0, 1);
+  // Halatlı platform küçük: sadece normal düşmanlar sığar.
+  if (type === 'roof') return { type, env: 'roof', big: false, skill, boss: false, enemies: new Array(Math.min(4, 2 + round)).fill('normal') };
   if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
   if (type === 'titan') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan'] };
   const env = ['meadow', 'ice', 'dojo'][(n - 1) % 3];
@@ -47,6 +50,7 @@ export function levelSpec(n) {
 
 const _v = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _seg = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
 
 export class Game {
   constructor() {
@@ -170,6 +174,8 @@ export class Game {
     const spec = levelSpec(n);
     this.spec = spec;
     this.world.set(spec.env, spec.big);
+    this.fx.setDecalParent(this.world.env.plat || this.scene);
+    this.tiltWarned = false;
     const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : -3.2;
     this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED });
     if (spec.type === 'horse') {
@@ -216,7 +222,7 @@ export class Game {
 
   restartLevel() { this.startLevel(this.level); }
 
-  // Ayarlardan: bulunduğun seviyeden sonraki ilk at / titan seviyesine atla.
+  // Ayarlardan: bulunduğun seviyeden sonraki ilk at / titan / platform seviyesine atla.
   jumpTo(type) {
     let n = this.level;
     while (levelSpec(n).type !== type) n++;
@@ -258,6 +264,7 @@ export class Game {
   step(h) {
     this.h = h;
     this.time += h;
+    this.world.step(h);
     if (this.horse) this.horse.update(h, this.player.alive ? this.player.stickW : null, this.world);
     for (const c of this.chars) { c.copyBlade(); c.update(h); }
     this.separate();
@@ -316,9 +323,18 @@ export class Game {
   separate() {
     const cs = this.chars;
     const hs = this.horse;
+    const ropes = this.world.ropes;
     for (let i = 0; i < cs.length; i++) {
       const a = cs[i];
-      if (!a.alive || a.falling || (a.isPlayer && a.y > 0.5 && !a.mount)) continue;
+      if (!a.alive || a.falling || (a.isPlayer && a.y - a.gy > 0.5 && !a.mount)) continue;
+      if (ropes) {
+        // Sağlam halatlar direk gibi: içinden geçilmez.
+        for (const r of ropes) {
+          if (!r.intact) continue;
+          const dx = a.x - r.x, dz = a.z - r.z, d = Math.hypot(dx, dz), min = 0.28 * a.S + r.r;
+          if (d < min && d > 1e-4) { a.x = r.x + dx / d * min; a.z = r.z + dz / d * min; }
+        }
+      }
       if (hs && !a.isPlayer) {
         // Atın gövdesi de engel: düşmanlar içinden geçmesin.
         const dx = a.x - hs.x, dz = a.z - hs.z, d = Math.hypot(dx, dz) || 1, min = 1.0 + 0.3 * a.S;
@@ -326,7 +342,7 @@ export class Game {
       }
       for (let j = i + 1; j < cs.length; j++) {
         const b = cs[j];
-        if (!b.alive || b.falling || (b.isPlayer && b.y > 0.5 && !b.mount)) continue;
+        if (!b.alive || b.falling || (b.isPlayer && b.y - b.gy > 0.5 && !b.mount)) continue;
         const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
         const min = 0.34 * (a.S + b.S);
         if (d < min && d > 1e-4) {
@@ -425,18 +441,23 @@ export class Game {
   onSwingStart(c) {
     if (!c.isPlayer) return;
     for (const e of this.enemies) {
-      if (!e.alive || e.state !== 'fight' || e.stun > 0 || e.swing) continue;
+      if (!e.alive || e.state !== 'fight' || e.stun > 0) continue;
       const d = Math.hypot(e.x - c.x, e.z - c.z);
       if (d < 2 && Math.random() < lerp(0.04, 0.3, e.skill)) this.knock(e, e.x - c.x, e.z - c.z, 4.2);
     }
   }
 
   cancelSwing(c) {
-    if (c.isPlayer) {
-      // Oyuncunun kılıcı çarptığı yerden geri seker.
+    if (c.aimCtl) {
+      // Kılıç çarptığı yerden geri seker; düşmanın saldırı planı da biter.
       c.swW = -c.swW * 0.5;
       c.aimYaw = c.swYaw;
       c.episode = null;
+      if (!c.isPlayer) {
+        c.aimA = c.swYaw;
+        c.plan = null;
+        if (c.state === 'attack') { c.state = 'fight'; c.cool = rand(0.4, 0.9); }
+      }
       return;
     }
     const s = c.swing;
@@ -469,31 +490,33 @@ export class Game {
       const x0 = Math.min(pb.bx, pb.tx, cb.bx, cb.tx) - 0.2, x1 = Math.max(pb.bx, pb.tx, cb.bx, cb.tx) + 0.2;
       const y0 = Math.min(pb.by, pb.ty, cb.by, cb.ty) - 0.2, y1 = Math.max(pb.by, pb.ty, cb.by, cb.ty) + 0.2;
       const z0 = Math.min(pb.bz, pb.tz, cb.bz, cb.tz) - 0.2, z1 = Math.max(pb.bz, pb.tz, cb.bz, cb.tz) + 0.2;
-      const targets = a.isPlayer ? this.enemies : [this.player];
+      if (this.world.ropes) this.cutRopes(a, pb, cb, x0, x1, z0, z1);
+      // Oyuncu herkesi (cesetleri de) keser; düşmanlar oyuncuyu ve yollarındaki arkadaşlarını.
+      const targets = a.isPlayer ? this.enemies : a.titan ? [this.player] : this.chars;
       for (const o of targets) {
-        const ep = a.isPlayer ? a.episode : a.swing;
+        const ep = a.curEp;
         if (!ep) break;
-        if (ep.hits.has(o)) continue;
+        if (o === a || ep.hits.has(o)) continue;
         if (!a.isPlayer && !o.alive) continue;
         const bb = o.rag.bounds(this._bb);
         if (bb.x1 < x0 || bb.x0 > x1 || bb.y1 < y0 || bb.y0 > y1 || bb.z1 < z0 || bb.z0 > z1) continue;
 
-        if (o.alive && o.hasSword && !o.titan && !a.titan) {
+        if (o.alive && o.hasSword && !o.titan && !a.titan && !ep.rolled.has(o)) {
+          // Kılıç kılıca: ikisi de savuruyorsa KLANG, değilse savunan şansla bloklar.
           const pt = sweepBlade(pb, cb, o.bCur, 3, 0.05);
           if (pt) {
             if (o.swingActive) { this.parry(a, o, pt); break; }
-            if (o.isPlayer && !ep.rolled.has(o)) {
-              ep.rolled.add(o);
-              if (Math.random() < 0.35) { this.block(a, o, pt); break; }
-            }
+            ep.rolled.add(o);
+            if (Math.random() < (o.isPlayer ? 0.4 : lerp(0.15, 0.45, o.skill))) { this.block(a, o, pt); break; }
           }
         }
         const hit = sweepRagdoll(o.rag, pb, cb, 4);
         if (!hit) continue;
-        // Düşman, vuruş kendisine ulaşmadan kılıcıyla karşılayabilir (seviye arttıkça daha sık).
-        if (!o.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && !o.swing && o.state !== 'panic' && !ep.rolled.has(o)) {
+        // Düşman, oyuncunun vuruşunu kılıcıyla karşılayabilir (seviye arttıkça daha sık).
+        // Arkadaşından gelen darbeyi beklemez.
+        if (a.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && o.state !== 'attack' && o.state !== 'panic' && !ep.rolled.has(o)) {
           ep.rolled.add(o);
-          if (Math.random() < lerp(0.12, 0.65, o.skill)) {
+          if (Math.random() < lerp(0.08, 0.45, o.skill)) {
             o.blockT = 0.35;
             o.blockUx = ep.ux; o.blockUy = ep.uy;
             o.counterT = 0.3;
@@ -513,27 +536,54 @@ export class Game {
     this.poke();
   }
 
-  // Yavaş dönen / ileri uzatılmış kılıç kesmez, düşmanı iter (bıçak gövdeye gömülmesin).
+  // Platform halatları: savrulan bıçak değdiği halatı keser, kimin olduğuna bakmaz.
+  cutRopes(a, pb, cb, x0, x1, z0, z1) {
+    const w = this.world, h = this.h;
+    for (const r of w.ropes) {
+      if (!r.intact || r.x < x0 - r.r || r.x > x1 + r.r || r.z < z0 - r.r || r.z > z1 + r.r) continue;
+      const gy = w.ground(r.x, r.z);
+      _seg.bx = r.x; _seg.by = gy; _seg.bz = r.z; _seg.tx = r.x; _seg.ty = gy + 3.2; _seg.tz = r.z;
+      const pt = sweepBlade(pb, cb, _seg, 3, r.r + 0.03);
+      if (!pt) continue;
+      w.cutRope(r, pt.y - gy, (cb.tx - pb.tx) / h, (cb.tz - pb.tz) / h);
+      this.fx.sparks(pt.x, pt.y, pt.z, 16);
+      this.fx.popup(pt.x, pt.y + 0.6, pt.z, 'HALAT KOPTU!', '#ff7a5c', 22, 1.2);
+      Sfx.twang();
+      this.shake(0.14);
+      this.slowmo(0.15, 0.35);
+      if (!this.tiltWarned && w.tilt > 0.17) {
+        this.tiltWarned = true;
+        this.fx.popup(this.player.x, 2.6, this.player.z, 'PLATFORM YATIYOR!', '#ffd23f', 26, 1.6);
+      }
+    }
+  }
+
+  // Yavaş dönen / ileri uzatılmış kılıç kesmez, değdiğini iter (bıçak gövdeye gömülmesin).
+  // Herkes için geçerli: düşmanın uzattığı kılıç da seni ya da arkadaşını iter.
   poke() {
-    const a = this.player;
-    if (!a.alive || !a.hasSword || a.swingActive || a.pokeCd > 0 || (a.y > 0.3 && !a.mount)) return;
-    for (const o of this.enemies) {
-      if (!o.alive || o.kb > 0 || o.titan) continue;
-      const hit = sweepRagdoll(o.rag, a.bPrev, a.bCur, 2);
-      if (!hit) continue;
-      if (o.state === 'panic') {
-        // Silahsız kaçan düşman dürtmeyle de şişlenir; yoksa itip durursun, yakalayamazsın.
-        this.fx.popup(o.x, 2.3 * o.S, o.z, 'ŞİŞLENDİ!', '#ffd23f', 22, 1.1);
-        this.onHit(a, o, hit, a.sw.dx * 7, a.sw.dy * 7, a.sw.dz * 7);
-        if (o.alive) this.killEnemy(o, a, null, a.sw.dx * 7, 1, a.sw.dz * 7);
-        a.pokeCd = 0.2;
+    for (const a of this.chars) {
+      if (!a.alive || !a.aimCtl || !a.hasSword || a.swingActive || a.pokeCd > 0 || (a.y - a.gy > 0.3 && !a.mount)) continue;
+      const list = a.isPlayer ? this.enemies : this.chars;
+      for (const o of list) {
+        if (o === a || !o.alive || o.kb > 0 || o.titan) continue;
+        const bb = o.rag.bounds(this._bb), c = a.bCur;
+        if (bb.x1 < Math.min(c.bx, c.tx) || bb.x0 > Math.max(c.bx, c.tx) || bb.z1 < Math.min(c.bz, c.tz) || bb.z0 > Math.max(c.bz, c.tz)) continue;
+        const hit = sweepRagdoll(o.rag, a.bPrev, a.bCur, 2);
+        if (!hit) continue;
+        if (a.isPlayer && o.state === 'panic') {
+          // Silahsız kaçan düşman dürtmeyle de şişlenir; yoksa itip durursun, yakalayamazsın.
+          this.fx.popup(o.x, 2.3 * o.S, o.z, 'ŞİŞLENDİ!', '#ffd23f', 22, 1.1);
+          this.onHit(a, o, hit, a.sw.dx * 7, a.sw.dy * 7, a.sw.dz * 7);
+          if (o.alive) this.killEnemy(o, a, null, a.sw.dx * 7, 1, a.sw.dz * 7);
+          a.pokeCd = 0.2;
+          break;
+        }
+        this.knock(o, a.sw.dx, a.sw.dz, a.isPlayer ? 2.4 : o.isPlayer ? 1.8 : 1.4);
+        this.knock(a, -a.sw.dx, -a.sw.dz, 1.0);
+        a.pokeCd = 0.35;
+        Sfx.punch();
         break;
       }
-      this.knock(o, a.sw.dx, a.sw.dz, 2.4);
-      this.knock(a, -a.sw.dx, -a.sw.dz, 1.0);
-      a.pokeCd = 0.35;
-      Sfx.punch();
-      break;
     }
   }
 
@@ -596,6 +646,9 @@ export class Game {
 
   onHit(a, o, hit, vx, vy, vz) {
     const rag = o.rag, wasAlive = o.alive;
+    // Arkadaşını kesen düşman: kurban bazen kin tutup ona döner.
+    const friendly = !a.isPlayer && !o.isPlayer;
+    if (friendly && wasAlive && Math.random() < 0.55) { o.grudge = a; o.grudgeT = 4; }
 
     if (o.isPlayer && wasAlive) {
       this.hitPlayer(a, o, hit, vx, vy, vz);
@@ -634,6 +687,7 @@ export class Game {
       o.flash = 0.1;
       if (!o.hasSword) {
         o.state = 'panic';
+        o.grudge = null;
         this.fx.popup(o.x, 2.1 * o.S, o.z, 'AAAA!', '#fff', 22, 1.2);
       } else {
         o.stun = 0.45; o.state = 'stagger';
@@ -648,7 +702,7 @@ export class Game {
       o.flash = 0.12; o.stun = 0.5; o.state = 'stagger';
       o.rag.muscle = 0.3;
       this.knock(o, vx, vz, 3);
-      this.fx.popup(o.x, 2.3 * o.S, o.z, `${o.hp} CAN KALDI`, '#fff', 16, 0.9);
+      this.fx.popup(o.x, 2.3 * o.S, o.z, friendly ? 'HEY!' : `${o.hp} CAN KALDI`, '#fff', 16, 0.9);
       this.slowmo(0.08, 0.35);
       this.shake(0.06);
       return;
@@ -700,11 +754,12 @@ export class Game {
       else if (res.kind === 'torso') this.fx.popup(o.x, y, o.z, 'İKİYE BÖLÜNDÜ!', '#ffd23f', 26, 1.2);
       else if (res.kind === 'leg') this.fx.popup(o.x, y, o.z, 'BACAKSIZ!', '#ffd23f', 24, 1.2);
     }
-    const ep = a ? (a.isPlayer ? a.episode : a.swing) : null;
+    const ep = a ? a.curEp : null;
     if (ep) {
       ep.kills++;
-      if (ep.kills >= 2) this.fx.popup(a.x, 2.6, a.z, ep.kills === 2 ? 'ÇİFTE!' : 'KATLİAM!', '#ff5a36', 30, 1.3);
+      if (ep.kills >= 2 && a.isPlayer) this.fx.popup(a.x, 2.6, a.z, ep.kills === 2 ? 'ÇİFTE!' : 'KATLİAM!', '#ff5a36', 30, 1.3);
     }
+    if (a && !a.isPlayer && !o.titan) this.fx.popup(o.x, y + 0.5, o.z, 'DOST ATEŞİ!', '#ff8ad8', 24, 1.3);
     Sfx.combo(3);
     this.shake(0.12);
     this.checkWin();
@@ -733,8 +788,9 @@ export class Game {
   onFell(c) {
     if (!c.alive) return;
     c.die();
-    this.fx.popup(c.x, 1.2, c.z, 'SUYA DÜŞTÜ!', '#9be7ff', 24, 1.3);
-    if (c.isPlayer) this.lose('Suya düştün.'); else {
+    const roof = !!this.world.env.roof;
+    this.fx.popup(c.x, c.gy + 1.2, c.z, roof ? 'AŞAĞI DÜŞTÜ!' : 'SUYA DÜŞTÜ!', '#9be7ff', 24, 1.3);
+    if (c.isPlayer) this.lose(roof ? 'Platformdan düştün.' : 'Suya düştün.'); else {
       Sfx.combo(5);
       this.checkWin();
     }
@@ -748,7 +804,7 @@ export class Game {
     const fx = pl.alive ? pl.x : P.x, fz = pl.alive ? pl.z : P.z;
     // Kilitlenme hedefi yapışkandır: ölmedikçe ya da başkası çok daha yakın olmadıkça değişmez.
     const type = this.spec.type;
-    const py = pl.alive ? pl.y : Math.max(0, P.y - 0.8);
+    const py = pl.alive ? pl.y : Math.max(pl.gy, P.y - 0.8);
     let t = this.camTarget;
     if (type === 'titan') t = this.titan && this.titan.alive ? this.titan : null;
     else if (type === 'horse') t = null;
@@ -774,7 +830,7 @@ export class Game {
     const s = Math.sin(this.camYaw), c = Math.cos(this.camYaw);
     _v.set(fx - s * dist, height + py * (type === 'titan' ? 0.85 : 1), fz - c * dist);
     if (snap) this.camera.position.copy(_v); else this.camera.position.lerp(_v, damp(7, dt));
-    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : 0), fz + c * ahead);
+    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : type === 'roof' ? py : 0), fz + c * ahead);
     if (snap) this.lookAt.copy(look); else this.lookAt.lerp(look, damp(9, dt));
     this.camera.lookAt(this.lookAt);
     if (this.shakeAmt > 0.001) {

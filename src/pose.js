@@ -42,6 +42,18 @@ export const POSES = {
     o.bob = -0.02;
     return o;
   },
+  // Drift: kayılan yöndeki (dir: +1 sağ) bacak yana uzanıp fren yapar, öbürü altta
+  // boşa çırpınır, gövde ters yana yatar.
+  skid(o, ph, dir) {
+    const s = Math.sin(ph * 1.7);
+    o.lean = 0.12; o.twist = 0; o.side = 0.4 * dir; o.headP = -0.1;
+    const bP = 0.25, bB = 0.12, bS = 0.62;
+    const fP = 0.55 + 0.45 * s, fB = 1.3 + 0.3 * Math.cos(ph * 1.7), fS = -0.12;
+    if (dir > 0) { o.rP = bP; o.rB = bB; o.rS = bS; o.lP = fP; o.lB = fB; o.lS = fS; }
+    else { o.lP = bP; o.lB = bB; o.lS = bS; o.rP = fP; o.rB = fB; o.rS = fS; }
+    o.bob = -0.05;
+    return o;
+  },
   // Tek bacakla sekme: kalan bacak gövdenin altında, sekerek ilerler.
   hop(o, ph, moving) {
     const s = Math.abs(Math.sin(ph));
