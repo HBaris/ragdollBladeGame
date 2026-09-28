@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { clamp, lerp, rand, pick, damp, easeOutQuad, wrapAngle, loadNum, saveNum } from './util.js';
+import { clamp, lerp, rand, pick, damp, easeOutQuad, wrapAngle, loadNum, saveNum, segSeg, segOut, ptSeg, ptOut } from './util.js';
 import { Sfx } from './audio.js';
 import { J, MIN_CUT_LEN, sweepRagdoll, sweepBlade } from './ragdoll.js';
 import { Character, BLADE_LEN, PLAYER_SPEED } from './character.js';
@@ -9,12 +9,15 @@ import { Effects } from './effects.js';
 import { World } from './world.js';
 import { Input } from './input.js';
 import { Hud } from './hud.js';
+import { Horse } from './horse.js';
 
 const MAX_STEP = 1 / 120;
 const PLAYER_COLOR = 0xffa51f;
 const ENEMY_COLOR = 0xa51cff;
 const BOSS_COLOR = 0x6a12c2;
+const TITAN_COLOR = 0xb45cf0;
 const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo' };
+const LEVEL_CYCLE = ['duel', 'duel', 'horse', 'duel', 'boss', 'titan'];
 const DEATH_QUIPS = [
   'Ragdoll fiziği 1 — Sen 0',
   'Parçalarını toplamak biraz sürecek.',
@@ -22,24 +25,28 @@ const DEATH_QUIPS = [
   'Hiç değilse güzel uçtun.',
 ];
 
-// Seviye tasarımı: ortamlar sırayla döner, her 5. seviye boss, zorluk yavaşça artar.
+// Seviye tasarımı: düello, düello, at, düello, boss, titan döngüsü; zorluk yavaşça artar.
 export function levelSpec(n) {
-  const envs = ['meadow', 'ice', 'dojo'];
-  const env = envs[(n - 1) % envs.length];
+  const type = LEVEL_CYCLE[(n - 1) % LEVEL_CYCLE.length];
+  const round = Math.floor((n - 1) / LEVEL_CYCLE.length);
   const skill = clamp((n - 1) / 24, 0, 1);
-  const boss = n % 5 === 0;
+  if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
+  if (type === 'titan') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan'] };
+  const env = ['meadow', 'ice', 'dojo'][(n - 1) % 3];
+  const boss = type === 'boss';
   const enemies = [];
   if (boss) {
     enemies.push('boss');
-    for (let i = 0; i < Math.floor(n / 10); i++) enemies.push('normal');
+    for (let i = 0; i < round; i++) enemies.push('normal');
   } else {
-    const c = Math.min(4, 1 + Math.floor((n - 1) / 3));
+    const c = Math.min(4, 1 + Math.floor((n - 1) / 4));
     for (let i = 0; i < c; i++) enemies.push('normal');
   }
-  return { env, skill, boss, enemies };
+  return { type, env, big: false, skill, boss, enemies };
 }
 
 const _v = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 export class Game {
   constructor() {
@@ -80,6 +87,14 @@ export class Game {
     this.lastH = MAX_STEP;
     this.lastAttackT = -9;
     this._bb = {};
+    this.horse = null;
+    this.titan = null;
+    this.hookSide = 1;
+    this.raycaster = new THREE.Raycaster();
+    this.ropeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.6 }));
+    this.ropeMesh.visible = false;
+    this.ropeMesh.frustumCulled = false;
+    this.scene.add(this.ropeMesh);
     this.projectFn = (x, y, z) => this.project(x, y, z);
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -131,6 +146,9 @@ export class Game {
       if (c.swordMesh) { this.scene.remove(c.swordMesh); disposeSwordMesh(c.swordMesh); }
     }
     for (const l of this.loose) { this.scene.remove(l.mesh); disposeSwordMesh(l.mesh); }
+    if (this.horse) { this.horse.dispose(this.scene); this.horse = null; }
+    this.titan = null;
+    this.ropeMesh.visible = false;
     this.chars = [];
     this.enemies = [];
     this.loose = [];
@@ -145,24 +163,40 @@ export class Game {
     return c;
   }
 
-  // hp: oyuncunun bu seviyeye taşıdığı can (seviyeler arası birikir).
-  startLevel(n, hp = 3) {
+  startLevel(n) {
     this.clearLevel();
     this.level = n;
     saveNum('rk3dLevel', n);
     const spec = levelSpec(n);
     this.spec = spec;
-    this.world.set(spec.env);
-    this.player = this.addChar({ team: 'player', x: 0, z: -3.2, yaw: 0, hp: 3, color: PLAYER_COLOR, speed: PLAYER_SPEED });
-    this.player.hp = clamp(hp, 1, 3);
+    this.world.set(spec.env, spec.big);
+    const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : -3.2;
+    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED });
+    if (spec.type === 'horse') {
+      this.horse = new Horse(this.scene, 0, 0, 0);
+      this.player.mount = this.horse;
+    }
     const m = spec.enemies.length;
     spec.enemies.forEach((type, i) => {
-      const boss = type === 'boss';
-      this.enemies.push(this.addChar({
-        team: 'enemy', x: (i - (m - 1) / 2) * 1.9, z: 3.6 + (i % 2) * 0.9, yaw: Math.PI,
-        hp: boss ? 3 : 1, armored: boss, scale: boss ? 1.38 : 1, skill: spec.skill,
-        color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 2.1 : lerp(2.1, 3.3, spec.skill),
-      }));
+      const o = { team: 'enemy', hp: 1, skill: spec.skill, color: ENEMY_COLOR, yaw: Math.PI };
+      if (type === 'titan') {
+        // Titan: ~12 m boyunda, yavaş; kılıcı görünmez, "kılıç" onun kollarının savuruşu.
+        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 3, speed: 1.7, skill: spec.skill * 0.5, color: TITAN_COLOR });
+      } else if (type === 'big') {
+        // At seviyesi: normalden iri ama ağır düşmanlar, geniş alana dağılmış.
+        const a = (i / m) * Math.PI * 2 + rand(-0.3, 0.3), r = rand(16, 28);
+        Object.assign(o, { x: Math.sin(a) * r, z: Math.cos(a) * r, scale: 1.6, speed: 1.6, skill: spec.skill * 0.5, heavy: true });
+      } else {
+        const boss = type === 'boss';
+        Object.assign(o, {
+          x: (i - (m - 1) / 2) * 1.9, z: 3.6 + (i % 2) * 0.9,
+          hp: boss ? 3 : 1, armored: boss, scale: boss ? 1.38 : 1,
+          color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 2.1 : lerp(2.1, 3.3, spec.skill),
+        });
+      }
+      const e = this.addChar(o);
+      if (e.titan) { this.titan = e; e.swordMesh.visible = false; }
+      this.enemies.push(e);
     });
     this.phase = 'play';
     this.endT = 0;
@@ -174,16 +208,27 @@ export class Game {
     this.camTarget = null;
     this.updateCamera(0, true);
     this.hud.setLevel(n);
-    this.hud.setHearts(this.player.hp, this.player.maxHp);
-    this.hud.show(`SEVİYE ${n}`, spec.boss ? 'BOSS!' : ENV_NAMES[spec.env], 1.5, spec.boss ? 'boss' : '');
+    const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
+    this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || spec.type === 'titan' ? 'boss' : '');
+    if (spec.type !== 'duel' && spec.type !== 'boss') this.hintT = Math.max(this.hintT, 6);
     this.input.clear();
   }
 
   restartLevel() { this.startLevel(this.level); }
 
+  // Ayarlardan: bulunduğun seviyeden sonraki ilk at / titan seviyesine atla.
+  jumpTo(type) {
+    let n = this.level;
+    while (levelSpec(n).type !== type) n++;
+    this.startLevel(n);
+  }
+
   // ---------- zaman ----------
 
   frame(dt) {
+    const taps = this.input.taps;
+    if (this.spec.type === 'titan' && this.phase === 'play' && this.player.alive) for (const t of taps) this.fireHook(t);
+    taps.length = 0;
     if (this.slowT > 0) {
       this.slowT -= dt;
       this.timeScale = lerp(this.timeScale, this.slowScale, damp(40, dt));
@@ -196,8 +241,7 @@ export class Game {
     }
     if (this.phase === 'win') {
       this.endT += dt;
-      // Temizlenen seviye 1 can geri verir; can bir sonraki seviyeye taşınır.
-      if (this.endT > 2.7) this.startLevel(this.level + 1, this.player.hp + 1);
+      if (this.endT > 2.7) this.startLevel(this.level + 1);
     } else if (this.phase === 'lose') {
       this.endT += dt;
       if ((this.endT > 1.2 && this.input.anyPress) || this.endT > 5) this.restartLevel();
@@ -214,8 +258,10 @@ export class Game {
   step(h) {
     this.h = h;
     this.time += h;
+    if (this.horse) this.horse.update(h, this.player.alive ? this.player.stickW : null, this.world);
     for (const c of this.chars) { c.copyBlade(); c.update(h); }
     this.separate();
+    this.trample();
     const env = this.world, hp = this.lastH;
     for (const c of this.chars) {
       const rag = c.rag;
@@ -269,12 +315,18 @@ export class Game {
 
   separate() {
     const cs = this.chars;
+    const hs = this.horse;
     for (let i = 0; i < cs.length; i++) {
       const a = cs[i];
-      if (!a.alive || a.falling) continue;
+      if (!a.alive || a.falling || (a.isPlayer && a.y > 0.5 && !a.mount)) continue;
+      if (hs && !a.isPlayer) {
+        // Atın gövdesi de engel: düşmanlar içinden geçmesin.
+        const dx = a.x - hs.x, dz = a.z - hs.z, d = Math.hypot(dx, dz) || 1, min = 1.0 + 0.3 * a.S;
+        if (d < min) { a.x = hs.x + dx / d * min; a.z = hs.z + dz / d * min; }
+      }
       for (let j = i + 1; j < cs.length; j++) {
         const b = cs[j];
-        if (!b.alive || b.falling) continue;
+        if (!b.alive || b.falling || (b.isPlayer && b.y > 0.5 && !b.mount)) continue;
         const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
         const min = 0.34 * (a.S + b.S);
         if (d < min && d > 1e-4) {
@@ -284,6 +336,82 @@ export class Game {
         }
       }
     }
+  }
+
+  // Dörtnala giden at önündekini savurur (öldürmez).
+  trample() {
+    const hs = this.horse;
+    if (!hs || hs.speed < 4) return;
+    const fx = Math.sin(hs.yaw), fz = Math.cos(hs.yaw);
+    const px = hs.x + fx * 1.1, pz = hs.z + fz * 1.1;
+    for (const e of this.enemies) {
+      if (!e.alive || e.kb > 0 || this.time < (e.trampleT || 0)) continue;
+      if (Math.hypot(e.x - px, e.z - pz) > 0.9 + 0.25 * e.S) continue;
+      e.trampleT = this.time + 1.5; // aynı düşman üst üste ezilmesin
+      this.knock(e, fx + (e.x - hs.x) * 0.2, fz + (e.z - hs.z) * 0.2, hs.speed * 0.9);
+      e.stun = 0.9; e.state = 'stagger'; e.rag.muscle = 0.15; e.flash = 0.1;
+      this.cancelSwing(e);
+      hs.speed *= 0.55;
+      this.fx.popup(e.x, 2.6 * e.S, e.z, 'EZİLDİ!', '#fff', 20, 0.8);
+      Sfx.punch();
+      this.shake(0.1);
+    }
+  }
+
+  // ---------- halat (titan seviyesi) ----------
+
+  // Titana dokunulduysa onun o noktasına, yoksa ekran dışında önde-yukarıda bir noktaya halat.
+  fireHook(tap) {
+    const pl = this.player, t = this.titan;
+    let rope = null;
+    const hit = tap && t && t.alive ? this.pickTitan(tap.x, tap.y) : null;
+    if (hit) {
+      const rag = t.rag, bone = hit.bone, pt = { x: hit.x, y: hit.y, z: hit.z };
+      rope = {
+        pt, pull: 48, release: 1.6, maxT: 2.2, t: 0, titan: true,
+        anchor() {
+          if (bone === 'head') { const h = rag.pts[J.HEAD]; pt.x = h.x; pt.y = h.y; pt.z = h.z; } else if (rag.bones.includes(bone)) {
+            const A = rag.pts[bone.a], B = rag.pts[bone.b];
+            pt.x = lerp(A.x, B.x, hit.u); pt.y = lerp(A.y, B.y, hit.u); pt.z = lerp(A.z, B.z, hit.u);
+          }
+          return pt;
+        },
+      };
+    } else {
+      let fx = Math.sin(this.camYaw), fz = Math.cos(this.camYaw), d = 30;
+      if (t && t.alive) { fx = t.x - pl.x; fz = t.z - pl.z; d = Math.hypot(fx, fz) || 1; fx /= d; fz /= d; }
+      this.hookSide = -this.hookSide;
+      // Ekran dışına, önde ve yukarıda bir nokta: titanın boyu kadar yükseklikte salınırsın.
+      const fwd = clamp(d - 8, 5, 18), side = 6 * this.hookSide;
+      const pt = { x: pl.x + fx * fwd + fz * side, y: clamp(pl.y + 7, 10, 16), z: pl.z + fz * fwd - fx * side };
+      rope = { pt, pull: 24, release: 4, maxT: 1.2, t: 0, anchor: () => pt };
+    }
+    pl.rope = rope;
+    if (pl.y < 0.05) { pl.vy = Math.max(pl.vy, 4.5); pl.y = 0.03; }
+    Sfx.swoosh(2);
+  }
+
+  pickTitan(sx, sy) {
+    const t = this.titan, rag = t.rag;
+    this.raycaster.setFromCamera({ x: sx / this.W * 2 - 1, y: -(sy / this.H) * 2 + 1 }, this.camera);
+    const o = this.raycaster.ray.origin, d = this.raycaster.ray.direction;
+    const fx = o.x + d.x * 400, fy = o.y + d.y * 400, fz = o.z + d.z * 400;
+    let best = null, bs = Infinity;
+    for (const b of rag.bones) {
+      if (!b.vis) continue;
+      const A = rag.pts[b.a], B = rag.pts[b.b];
+      segSeg(o.x, o.y, o.z, fx, fy, fz, A.x, A.y, A.z, B.x, B.y, B.z);
+      const r = b.r * 1.3 + 0.6;
+      if (segOut.d2 < r * r && segOut.s < bs) {
+        bs = segOut.s;
+        best = { bone: b, u: segOut.t, x: lerp(A.x, B.x, segOut.t), y: lerp(A.y, B.y, segOut.t), z: lerp(A.z, B.z, segOut.t) };
+      }
+    }
+    const h = rag.pts[J.HEAD];
+    ptSeg(h.x, h.y, h.z, o.x, o.y, o.z, fx, fy, fz);
+    const hr = rag.d.headR * 1.3 + 0.6;
+    if (ptOut.d2 < hr * hr && ptOut.t < bs) best = { bone: 'head', u: 0, x: h.x, y: h.y, z: h.z };
+    return best;
   }
 
   knock(c, dx, dz, speed) {
@@ -350,7 +478,7 @@ export class Game {
         const bb = o.rag.bounds(this._bb);
         if (bb.x1 < x0 || bb.x0 > x1 || bb.y1 < y0 || bb.y0 > y1 || bb.z1 < z0 || bb.z0 > z1) continue;
 
-        if (o.alive && o.hasSword) {
+        if (o.alive && o.hasSword && !o.titan && !a.titan) {
           const pt = sweepBlade(pb, cb, o.bCur, 3, 0.05);
           if (pt) {
             if (o.swingActive) { this.parry(a, o, pt); break; }
@@ -363,7 +491,7 @@ export class Game {
         const hit = sweepRagdoll(o.rag, pb, cb, 4);
         if (!hit) continue;
         // Düşman, vuruş kendisine ulaşmadan kılıcıyla karşılayabilir (seviye arttıkça daha sık).
-        if (!o.isPlayer && o.alive && o.hasSword && o.stun <= 0 && !o.swing && o.state !== 'panic' && !ep.rolled.has(o)) {
+        if (!o.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && !o.swing && o.state !== 'panic' && !ep.rolled.has(o)) {
           ep.rolled.add(o);
           if (Math.random() < lerp(0.12, 0.65, o.skill)) {
             o.blockT = 0.35;
@@ -388,9 +516,9 @@ export class Game {
   // Yavaş dönen / ileri uzatılmış kılıç kesmez, düşmanı iter (bıçak gövdeye gömülmesin).
   poke() {
     const a = this.player;
-    if (!a.alive || !a.hasSword || a.swingActive || a.pokeCd > 0) return;
+    if (!a.alive || !a.hasSword || a.swingActive || a.pokeCd > 0 || (a.y > 0.3 && !a.mount)) return;
     for (const o of this.enemies) {
-      if (!o.alive || o.kb > 0) continue;
+      if (!o.alive || o.kb > 0 || o.titan) continue;
       const hit = sweepRagdoll(o.rag, a.bPrev, a.bCur, 2);
       if (!hit) continue;
       if (o.state === 'panic') {
@@ -470,21 +598,8 @@ export class Game {
     const rag = o.rag, wasAlive = o.alive;
 
     if (o.isPlayer && wasAlive) {
-      if (o.invuln > 0) return;
-      o.hp--;
-      this.hud.setHearts(o.hp, o.maxHp);
-      this.hud.flash = 0.6;
-      this.shake(0.15);
-      if (o.hp > 0) {
-        this.cancelSwing(o);
-        o.hurtT = 0.35; o.invuln = 0.8; o.flash = 0.12;
-        this.knock(o, o.x - a.x, o.z - a.z, 4.5);
-        rag.addVel(vx * 0.25, 1.5, vz * 0.25, this.h);
-        this.fx.spray(hit.x, hit.y, hit.z, vx, vy, vz, 18, 0.7, 3);
-        Sfx.hurt(); Sfx.wound();
-        this.slowmo(0.15, 0.35);
-        return;
-      }
+      this.hitPlayer(a, o, hit, vx, vy, vz);
+      return;
     }
 
     // Boss son canına kadar hiç kopmaz, sadece yaralanır.
@@ -499,13 +614,21 @@ export class Game {
     }
     if (!wasAlive) return;
 
-    if (o.isPlayer) {
-      o.die();
-      o.rag.addVel(vx * 0.5, 3, vz * 0.5, this.h);
-      this.lose();
+    if (o.titan && res && (res.kind === 'arm' || res.kind === 'leg')) {
+      // Titan uzuv kaybederek devam eder; boyun/gövde ya da 3. kesik onu düşürür.
+      o.hp--;
+      if (res.kind === 'arm') o.checkGrip();
+      if (o.hp > 0) {
+        o.flash = 0.15; o.stun = 0.8; o.state = 'stagger'; this.cancelSwing(o);
+        this.fx.popup(o.x, 9, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
+        this.fx.popup(o.x, 7.5, o.z, `${o.hp} CAN KALDI`, '#fff', 18, 1.1);
+        this.slowmo(0.2, 0.3);
+        this.shake(0.15);
+        return;
+      }
+      this.killEnemy(o, a, res, vx, vy, vz);
       return;
     }
-
     if (res && res.kind === 'arm') {
       o.checkGrip();
       o.flash = 0.1;
@@ -533,12 +656,45 @@ export class Game {
     this.killEnemy(o, a, res, vx, vy, vz);
   }
 
+  // Oyuncunun tek canı var ama rakipler kadar kolay ölmez: gövde darbesi kesmez, savurur;
+  // bacak gidince tek ayakla seker, ikisi gidince güdüklerle sürünür; bir kol gidince
+  // diğeriyle tutar. Kafa ya da iki kol giderse ölüm.
+  hitPlayer(a, o, hit, vx, vy, vz) {
+    if (o.invuln > 0) return;
+    const rag = o.rag;
+    const kind = hit.head ? 'neck' : rag.bones[hit.bone].kind;
+    this.hud.flash = 0.6;
+    this.shake(0.15);
+    this.cancelSwing(o);
+    const res = kind === 'torso' ? null : this.applyCut(rag, hit);
+    rag.addVel(vx * 0.25, vy * 0.2 + 1.2, vz * 0.25, this.h);
+    this.gore(rag, res, hit, vx, vy, vz);
+    const P = rag.pts;
+    if (res && (res.kind === 'neck' || (!P[J.LHAND].attached && !P[J.RHAND].attached))) {
+      o.die();
+      rag.addVel(vx * 0.5, 3, vz * 0.5, this.h);
+      this.lose(res.kind === 'neck' ? 'Kafan gitti.' : 'İki kolun da gitti.');
+      return;
+    }
+    o.hurtT = 0.3; o.invuln = res ? 0.9 : 0.6; o.flash = 0.12;
+    this.knock(o, o.x - a.x, o.z - a.z, a.titan ? 10 : res ? 4 : 5);
+    if (a.titan && !o.mount) { o.vy = 7; o.y = Math.max(o.y, 0.05); o.rope = null; }
+    Sfx.hurt();
+    if (!res) { this.slowmo(0.12, 0.4); return; }
+    o.checkGrip();
+    const y = 2.1 * o.S;
+    if (res.kind === 'arm') this.fx.popup(o.x, y, o.z, 'KOLUN GİTTİ!', '#ff5a6e', 22, 1.3);
+    else if (res.kind === 'leg') this.fx.popup(o.x, y, o.z, o.legMask ? 'TEK AYAK!' : 'BACAKSIZ DEVAM!', '#ff5a6e', 22, 1.3);
+    this.slowmo(0.25, 0.3);
+  }
+
   killEnemy(o, a, res, vx, vy, vz) {
     o.die();
     const h = this.h;
     o.rag.addVel(vx * 0.45, vy * 0.3 + 2.5, vz * 0.45, h);
     o.rag.addSpin(rand(-5, 5), rand(-3, 3), rand(-5, 5), h);
     const y = 2.2 * o.S;
+    if (o.titan) { this.fx.popup(o.x, 8, o.z, 'TİTAN DÜŞTÜ!', '#ffd23f', 34, 1.6); this.shake(0.3); }
     if (res) {
       if (res.kind === 'neck') this.fx.popup(o.x, y, o.z, 'KAFA GİTTİ!', '#ffd23f', 26, 1.2);
       else if (res.kind === 'torso') this.fx.popup(o.x, y, o.z, 'İKİYE BÖLÜNDÜ!', '#ffd23f', 26, 1.2);
@@ -561,24 +717,24 @@ export class Game {
     this.phase = 'win';
     this.endT = 0;
     this.slowmo(1.1, 0.2);
-    this.hud.show('TEMİZLENDİ!', this.player.hp < 3 ? `Lv ${this.level} geçildi  ·  +1 ♥` : `Lv ${this.level} geçildi`, 2.6, 'win');
+    this.hud.show('TEMİZLENDİ!', `Lv ${this.level} geçildi`, 2.6, 'win');
     Sfx.win();
   }
 
-  lose() {
+  lose(reason) {
     if (this.phase !== 'play') return;
     this.phase = 'lose';
     this.endT = 0;
     this.slowmo(1.2, 0.25);
     Sfx.die();
-    this.hud.show('ÖLDÜN', `${pick(DEATH_QUIPS)}  ·  Tekrar için dokun`, 0, 'lose');
+    this.hud.show('ÖLDÜN', `${reason || pick(DEATH_QUIPS)}  ·  Tekrar için dokun`, 0, 'lose');
   }
 
   onFell(c) {
     if (!c.alive) return;
     c.die();
     this.fx.popup(c.x, 1.2, c.z, 'SUYA DÜŞTÜ!', '#9be7ff', 24, 1.3);
-    if (c.isPlayer) { this.hud.setHearts(0, c.maxHp); this.lose(); } else {
+    if (c.isPlayer) this.lose('Suya düştün.'); else {
       Sfx.combo(5);
       this.checkWin();
     }
@@ -591,30 +747,53 @@ export class Game {
     const P = pl.rag.pts[J.PELVIS];
     const fx = pl.alive ? pl.x : P.x, fz = pl.alive ? pl.z : P.z;
     // Kilitlenme hedefi yapışkandır: ölmedikçe ya da başkası çok daha yakın olmadıkça değişmez.
+    const type = this.spec.type;
+    const py = pl.alive ? pl.y : Math.max(0, P.y - 0.8);
     let t = this.camTarget;
-    const near = pl.alive ? this.nearestEnemy(pl, 14) : null;
-    if (!t || !t.alive || (t.state === 'panic' && near && near.state !== 'panic')) t = near;
-    else if (near && near !== t && Math.hypot(near.x - fx, near.z - fz) < 0.6 * Math.hypot(t.x - fx, t.z - fz)) t = near;
+    if (type === 'titan') t = this.titan && this.titan.alive ? this.titan : null;
+    else if (type === 'horse') t = null;
+    else {
+      // Kilitlenme hedefi yapışkandır: ölmedikçe ya da başkası çok daha yakın olmadıkça değişmez.
+      const near = pl.alive ? this.nearestEnemy(pl, 14) : null;
+      if (!t || !t.alive || (t.state === 'panic' && near && near.state !== 'panic')) t = near;
+      else if (near && near !== t && Math.hypot(near.x - fx, near.z - fz) < 0.6 * Math.hypot(t.x - fx, t.z - fz)) t = near;
+    }
     this.camTarget = t;
     let yawT = this.camYaw;
     if (t && pl.alive) yawT = Math.atan2(t.x - fx, t.z - fz);
     else if (pl.alive && Math.hypot(pl.vx, pl.vz) > 1) yawT = pl.yaw;
     else if (!pl.alive) yawT = this.camYaw + dt * 0.3;
     // Yakın dövüşte kamera yavaş döner ki joystick yönleri ayağının altından kaymasın.
-    const close = t && Math.hypot(t.x - fx, t.z - fz) < 2.4;
-    this.camYaw = snap ? yawT : this.camYaw + wrapAngle(yawT - this.camYaw) * damp(close ? 0.6 : t ? 2.5 : 1.2, dt);
+    const close = t && Math.hypot(t.x - fx, t.z - fz) < 2.4 * t.S;
+    const rate = type === 'horse' ? 1.8 : close ? 0.6 : t ? 2.5 : 1.2;
+    this.camYaw = snap ? yawT : this.camYaw + wrapAngle(yawT - this.camYaw) * damp(rate, dt);
     const portrait = this.H > this.W;
-    const dist = portrait ? 4.0 : 4.1, height = portrait ? 3.5 : 2.6;
+    let dist = portrait ? 4.0 : 4.1, height = portrait ? 3.5 : 2.6, ahead = 1.9, lookY = portrait ? 0.55 : 0.8;
+    if (type === 'horse') { dist = portrait ? 6.8 : 6.2; height = portrait ? 5.2 : 4.2; ahead = 3.5; lookY = 1.2; }
+    if (type === 'titan') { dist = portrait ? 9.5 : 8.5; height = portrait ? 4.5 : 3.6; ahead = 7; lookY = 3 + py * 0.5; }
     const s = Math.sin(this.camYaw), c = Math.cos(this.camYaw);
-    _v.set(fx - s * dist, height + Math.max(0, pl.y), fz - c * dist);
+    _v.set(fx - s * dist, height + py * (type === 'titan' ? 0.85 : 1), fz - c * dist);
     if (snap) this.camera.position.copy(_v); else this.camera.position.lerp(_v, damp(7, dt));
-    const look = _v.set(fx + s * 1.9, portrait ? 0.55 : 0.8, fz + c * 1.9);
+    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : 0), fz + c * ahead);
     if (snap) this.lookAt.copy(look); else this.lookAt.lerp(look, damp(9, dt));
     this.camera.lookAt(this.lookAt);
     if (this.shakeAmt > 0.001) {
       this.camera.position.x += (Math.random() - 0.5) * this.shakeAmt;
       this.camera.position.y += (Math.random() - 0.5) * this.shakeAmt;
     }
+  }
+
+  // Halat: oyuncunun göğsünden bağlandığı noktaya ince bir silindir.
+  updateRope() {
+    const pl = this.player, r = pl.alive ? pl.rope : null, m = this.ropeMesh;
+    if (!r) { m.visible = false; return; }
+    const a = r.anchor(), N = pl.rag.pts[J.NECK];
+    _v.set(a.x - N.x, a.y - N.y, a.z - N.z);
+    const len = _v.length();
+    m.visible = true;
+    m.position.set(N.x, N.y, N.z);
+    m.scale.set(1, len, 1);
+    m.quaternion.setFromUnitVectors(_up, _v.multiplyScalar(1 / len));
   }
 
   project(x, y, z) {
@@ -632,11 +811,13 @@ export class Game {
       }
     }
     for (const l of this.loose) l.render();
+    if (this.horse) this.horse.render();
+    this.updateRope();
     this.fx.flush();
     this.world.update(dt, this.camera.position);
     const pl = this.player, P = pl.rag.pts[J.PELVIS];
     this.world.followShadow(P.x, P.z);
     this.renderer.render(this.scene, this.camera);
-    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT);
+    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT, this.player, this.spec.type);
   }
 }

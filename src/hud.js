@@ -1,4 +1,5 @@
 import { clamp } from './util.js';
+import { J } from './ragdoll.js';
 
 // HUD: sol üstte seviye, sağ üstte ayar ve yeniden başlat, ortada duyurular.
 // Üst kanvas: yüzen joystick ve 3D'den izdüşürülen yazılar.
@@ -14,16 +15,16 @@ export class Hud {
     const root = document.getElementById('hud');
     root.innerHTML = `
       <div id="lv">Lv 1</div>
-      <div id="hearts"></div>
       <div id="btns"><button id="b-gear" aria-label="Ayarlar">${GEAR}</button><button id="b-restart" aria-label="Yeniden başlat">${RESTART}</button></div>
       <div id="banner"><div id="b-main"></div><div id="b-sub"></div></div>
       <div id="settings" hidden>
         <button id="s-sound"></button>
         <button id="s-quality"></button>
+        <button id="s-horse">At seviyesine git</button>
+        <button id="s-titan">Titan seviyesine git</button>
         <button id="s-close">Kapat</button>
       </div>`;
     this.lv = root.querySelector('#lv');
-    this.hearts = root.querySelector('#hearts');
     this.banner = root.querySelector('#banner');
     this.bMain = root.querySelector('#b-main');
     this.bSub = root.querySelector('#b-sub');
@@ -35,6 +36,8 @@ export class Hud {
     root.querySelector('#s-close').addEventListener('click', () => { this.settings.hidden = true; });
     root.querySelector('#s-sound').addEventListener('click', () => { game.toggleSound(); this.refreshSettings(); });
     root.querySelector('#s-quality').addEventListener('click', () => { game.toggleQuality(); this.refreshSettings(); });
+    root.querySelector('#s-horse').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('horse'); });
+    root.querySelector('#s-titan').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titan'); });
     this.bannerT = 0;
     this.flash = 0;
     this.resize();
@@ -58,10 +61,32 @@ export class Hud {
 
   setLevel(n) { this.lv.textContent = `Lv ${n}`; }
 
-  setHearts(hp, max) {
-    let s = '';
-    for (let i = 0; i < max; i++) s += `<span class="${i < hp ? 'on' : ''}">♥</span>`;
-    this.hearts.innerHTML = s;
+  // Sol üstte küçük vücut şeması: kopan uzuv kırmızı ve kesikli çizilir.
+  drawBody(c, player, u) {
+    if (!player) return;
+    const r = this.lv.getBoundingClientRect();
+    const x = r.left + 4, y = r.bottom + 4, k = 1.15 * u;
+    const P = player.rag.pts;
+    const part = (ok, draw) => {
+      c.setLineDash(ok ? [] : [3, 3]);
+      c.strokeStyle = ok ? 'rgba(255,255,255,0.9)' : 'rgba(255,59,92,0.95)';
+      c.fillStyle = c.strokeStyle;
+      c.beginPath(); draw(); c.stroke();
+    };
+    c.save();
+    c.lineCap = 'round';
+    c.lineWidth = 3.2 * u;
+    c.shadowColor = 'rgba(0,0,0,0.35)';
+    c.shadowBlur = 3;
+    const X = (v) => x + v * k, Y = (v) => y + v * k;
+    const alive = player.alive;
+    part(alive || P[J.HEAD].attached, () => c.arc(X(14), Y(7), 5.5 * k, 0, Math.PI * 2));
+    part(true, () => { c.moveTo(X(14), Y(14)); c.lineTo(X(14), Y(31)); });
+    part(P[J.LHAND].attached, () => { c.moveTo(X(14), Y(16)); c.lineTo(X(4), Y(28)); });
+    part(P[J.RHAND].attached, () => { c.moveTo(X(14), Y(16)); c.lineTo(X(24), Y(28)); });
+    part(P[J.LFOOT].attached, () => { c.moveTo(X(14), Y(31)); c.lineTo(X(7), Y(47)); });
+    part(P[J.RFOOT].attached, () => { c.moveTo(X(14), Y(31)); c.lineTo(X(21), Y(47)); });
+    c.restore();
   }
 
   show(main, sub, dur, cls) {
@@ -81,11 +106,12 @@ export class Hud {
     }
   }
 
-  draw(project, popups, input, hintT) {
+  draw(project, popups, input, hintT, player, mode) {
     const c = this.ctx, dpr = this.dpr;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
     const u = clamp(Math.min(this.W, this.H) / 400, 0.8, 1.6);
+    this.drawBody(c, player, u);
 
     // Yüzen joystick: dokunduğun yerde belirir. Dokunulmuyorsa altta silik bir ipucu.
     const st = input.stick;
@@ -139,9 +165,11 @@ export class Hud {
       c.fillStyle = '#fff';
       c.strokeStyle = 'rgba(0,0,0,0.35)';
       c.lineWidth = 3;
-      const lines = input.touchMode
+      let lines = input.touchMode
         ? ['Parmağını sürükle: kılıç o yöne döner', 'Az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES']
         : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
+      if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Uçarken kılıç değdiği yeri keser'];
+      if (mode === 'horse') lines = ['Sürükle: at o yöne döner, kılıç da', 'Çok it = dörtnala · hızlı çevir = KES', 'At önündekini ezer'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
     }

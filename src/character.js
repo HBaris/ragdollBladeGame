@@ -16,6 +16,10 @@ const MAX_ARM_LEAD = 2.0;      // kılıç gövdenin en fazla bu kadar önüne g
 
 // Düşman savuruşları: bıçak ucunun gideceği yön (yerel x sağ, y yukarı).
 const ENEMY_SWINGS = [[1, 0], [-1, 0], [0, -1], [0.7, -0.7], [-0.7, -0.7], [0.75, 0.5], [-0.75, 0.5]];
+// Titan yerdeki oyuncuya tepeden/çapraz vurur, havadakine yatay savurur.
+const TITAN_LOW = [[0, -1], [0.7, -0.7], [-0.7, -0.7]];
+const TITAN_HIGH = [[1, 0], [-1, 0]];
+const _sad = { x: 0, y: 0, z: 0 };
 
 const _a = makePose(), _b = makePose(), _c = makePose();
 const _ik = [0, 0, 0, 0, 0, 0];
@@ -32,6 +36,7 @@ export class Character {
     this.want = { x: 0, z: 0 };
     this.hp = o.hp || 1;
     this.maxHp = this.hp;
+    if (this.titan) this.hp = o.hp || 3;
     this.armored = !!o.armored;
     this.skill = o.skill || 0;
     this.speed = o.speed || 2.5;
@@ -43,6 +48,12 @@ export class Character {
     this.flash = 0; this.invuln = 0; this.hurtT = 0; this.kb = 0; this.stun = 0;
     this.blockT = 0; this.blockUx = 0; this.blockUy = 0; this.counterT = 0;
     this.swing = null;
+    this.titan = !!o.titan;
+    this.heavy = !!o.heavy;     // at seviyesinin iri ve ağır düşmanları
+    this.mount = null;          // binilen at
+    this.rope = null;           // titan seviyesinde halat
+    this.flying = false;
+    this.stickW = { x: 0, z: 1, mag: 0 };
     // Oyuncu kılıcı: hedef yön (aimYaw), gerçek yön (swYaw), açısal hız (swW), kesme dalgası (episode).
     this.aimYaw = this.yaw; this.swYaw = this.yaw; this.swW = 0; this.episode = null; this.pokeCd = 0;
     this.state = 'approach';
@@ -92,6 +103,12 @@ export class Character {
     out[o + 2] = s * v[0] + c * v[2];
   }
 
+  // Yere basan bacaklar: bit0 sol, bit1 sağ (ayak gövdeye bağlıysa).
+  get legMask() {
+    const p = this.rag.pts;
+    return (p[J.LFOOT].attached ? 1 : 0) | (p[J.RFOOT].attached ? 2 : 0);
+  }
+
   get forwardX() { return Math.sin(this.yaw); }
   get forwardZ() { return Math.cos(this.yaw); }
 
@@ -109,13 +126,16 @@ export class Character {
     this.counterT = Math.max(0, this.counterT - dt);
     this.pokeCd = Math.max(0, this.pokeCd - dt);
     if (this.isPlayer) { this.thinkPlayer(); this.updateAim(dt); } else this.thinkEnemy(dt);
-    this.move(dt);
+    if (this.mount) this.ride(); else this.move(dt);
     if (!this.alive) return;
     if (this.isPlayer) {
-      // Kollar gövdenin önüne geçebilir ama sınırsız değil: gövde arkadan gelir.
+      // Kollar gövdenin önüne geçebilir ama sınırsız değil: yerde gövde arkadan gelir,
+      // at sırtında gövde atla döndüğü için kılıç yanlarda durur.
+      const lead = this.mount ? 2.3 : MAX_ARM_LEAD;
       const rel = wrapAngle(this.swYaw - this.yaw);
-      if (rel > MAX_ARM_LEAD) this.yaw = this.swYaw - MAX_ARM_LEAD;
-      else if (rel < -MAX_ARM_LEAD) this.yaw = this.swYaw + MAX_ARM_LEAD;
+      if (Math.abs(rel) > lead) {
+        if (this.mount) { this.swYaw = wrapAngle(this.yaw + Math.sign(rel) * lead); this.swW = 0; } else this.yaw = this.swYaw - Math.sign(rel) * lead;
+      }
     }
     if (this.swing) {
       this.swing.t += dt;
@@ -140,8 +160,8 @@ export class Character {
     const sk = this.skill;
     this.swing = {
       t: 0, ux, uy, a0: A0, a1: A1,
-      wind: fast ? 0.05 : lerp(0.62, 0.24, sk) * (this.counterT > 0 ? 0.6 : 1),
-      dur: fast ? 0.2 : 0.24,
+      wind: fast ? 0.05 : lerp(0.62, 0.24, sk) * (this.counterT > 0 ? 0.6 : 1) * (this.titan ? 1.8 : this.heavy ? 1.7 : 1),
+      dur: fast ? 0.2 : this.titan ? 0.5 : this.heavy ? 0.36 : 0.24,
       rec: fast ? 0.18 : lerp(0.55, 0.35, sk),
       hits: new Set(), rolled: new Set(), kills: 0,
     };
@@ -172,7 +192,10 @@ export class Character {
     // Kamera ileri = (sin, 0, cos), sağ = (-cos, 0, sin).
     const wx = cs * mv.y - cc * mv.x, wz = cc * mv.y + cs * mv.x;
     const l = Math.hypot(wx, wz) || 1;
-    const run = clamp((mv.mag - 0.4) / 0.45, 0, 1) * PLAYER_SPEED;
+    this.stickW.x = wx / l; this.stickW.z = wz / l; this.stickW.mag = mv.mag;
+    const lm = this.legMask;
+    const legs = lm === 3 ? 1 : lm ? 0.62 : 0.42; // tek bacakla sekerek, bacaksız sürünerek
+    const run = clamp((mv.mag - 0.4) / 0.45, 0, 1) * PLAYER_SPEED * legs;
     this.want.x = wx / l * run;
     this.want.z = wz / l * run;
     if (mv.mag > 0.18 && this.stun <= 0) this.aimYaw = Math.atan2(wx, wz);
@@ -184,13 +207,51 @@ export class Character {
     this.swYaw = wrapAngle(this.swYaw + this.swW * dt);
     this.faceYaw = this.swYaw;
     // Her yöne dönüş yeni bir "savuruş": aynı düşman bir savuruşta bir kez kesilir.
-    const a = Math.abs(this.swW), dir = Math.sign(this.swW);
-    if (a > ACTIVE_W && this.hasSword) {
+    // Halatla hızlı uçarken kılıç dönmese de değdiği yeri keser.
+    const a = Math.abs(this.swW);
+    this.flying = (!!this.rope || this.y > 0.4) && Math.hypot(this.vx, this.vy, this.vz) > 8;
+    if ((a > ACTIVE_W || this.flying) && this.hasSword) {
+      const dir = a > ACTIVE_W ? Math.sign(this.swW) : 2;
       if (!this.episode || this.episode.dir !== dir) {
-        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir, ux: -dir, uy: 0 };
+        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir, ux: dir === 2 ? 1 : -dir, uy: 0 };
         this.game.onSwingStart(this);
       }
     } else if (a < ACTIVE_END) this.episode = null;
+  }
+
+  ride() {
+    const h = this.mount, s = h.saddle(_sad);
+    this.x = s.x; this.y = s.y; this.z = s.z;
+    this.vx = h.vx; this.vz = h.vz; this.vy = 0;
+    this.yaw = h.yaw; this.faceYaw = h.yaw;
+    this.phase = h.phase;
+  }
+
+  // Havada: halat çeker, yerçekimi, hafif sürtünme; joystick biraz yön verir.
+  moveAir(dt) {
+    const env = this.game.world, r = this.rope;
+    if (r) {
+      const a = r.anchor();
+      const dx = a.x - this.x, dy = a.y - (this.y + 1.1 * this.S), dz = a.z - this.z;
+      const dist = Math.hypot(dx, dy, dz) || 1;
+      this.vx += dx / dist * r.pull * dt; this.vy += dy / dist * r.pull * dt; this.vz += dz / dist * r.pull * dt;
+      r.t += dt;
+      if (dist < r.release || r.t > r.maxT) this.rope = null;
+    }
+    this.vy -= GRAVITY * (r ? 0.55 : 0.9) * dt;
+    const f = Math.exp(-0.3 * dt);
+    this.vx *= f; this.vz *= f;
+    const st = this.stickW;
+    if (st.mag > 0.3) { this.vx += st.x * 7 * dt; this.vz += st.z * 7 * dt; }
+    const sp = Math.hypot(this.vx, this.vy, this.vz);
+    if (sp > 30) { this.vx *= 30 / sp; this.vy *= 30 / sp; this.vz *= 30 / sp; }
+    this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
+    const R = Math.hypot(this.x, this.z), lim = env.radius - 0.5;
+    if (R > lim) { this.x *= lim / R; this.z *= lim / R; this.vx *= 0.3; this.vz *= 0.3; }
+    if (this.y <= 0 && this.vy <= 0) {
+      this.y = 0; this.vy = 0;
+      this.kb = 0.35; // yere inince biraz kay
+    }
   }
 
   thinkEnemy(dt) {
@@ -202,12 +263,15 @@ export class Character {
     if (g.time < 0.8) return; // seviye başında kısa bir nefes
     this.timer -= dt;
     this.cool -= dt;
-    const engage = 1.55 * this.S;
+    const engage = (this.titan ? 0.5 : 1.55) * this.S;
     if (!pl.alive && this.state !== 'panic') this.state = 'cheer';
     switch (this.state) {
-      case 'approach':
-        if (dist > engage + 0.2) { this.want.x = dx / dist * this.speed; this.want.z = dz / dist * this.speed; } else this.state = 'fight';
+      case 'approach': {
+        const lm = this.titan ? this.legMask : 3;
+        const sp = this.speed * (lm === 3 ? 1 : lm ? 0.6 : 0.4);
+        if (dist > engage + 0.2) { this.want.x = dx / dist * sp; this.want.z = dz / dist * sp; } else this.state = 'fight';
         break;
+      }
       case 'fight': {
         // Yanlara kayarak mesafeyi korur, sırası gelince saldırır.
         if (this.timer <= 0) { this.strafeDir *= -1; this.timer = rand(0.8, 1.8); }
@@ -223,12 +287,12 @@ export class Character {
           const w = Math.atan2(Math.sin(da), Math.cos(da));
           if (Math.abs(w) < 1.6) spread -= Math.sign(w) * (1.6 - Math.abs(w));
         }
-        const tang = this.strafeDir * s * 0.6 + spread * (1.2 + this.skill * 1.5);
+        const tang = this.titan ? 0 : this.strafeDir * s * 0.6 + spread * (1.2 + this.skill * 1.5);
         this.want.x = px * -tang + dx / dist * clamp(close * 3, -2, this.speed);
         this.want.z = pz * -tang + dz / dist * clamp(close * 3, -2, this.speed);
         // Blok sonrası karşı saldırı jeton beklemez.
         if ((this.counterT > 0 && dist < engage + 0.5) || (this.cool <= 0 && dist < engage + 0.35 + this.skill * 0.5 && g.takeAttackToken(this))) {
-          const [ux, uy] = pick(ENEMY_SWINGS);
+          const [ux, uy] = pick(this.titan ? (pl.y > 3 ? TITAN_HIGH : TITAN_LOW) : ENEMY_SWINGS);
           this.startSwing(ux, uy, false);
           this.state = 'attack';
         }
@@ -261,6 +325,11 @@ export class Character {
 
   move(dt) {
     const env = this.game.world;
+    if (this.isPlayer && (this.rope || this.y > 0.02 || this.vy > 0.01)) {
+      this.moveAir(dt);
+      this.turn(dt);
+      return;
+    }
     let wx = this.want.x, wz = this.want.z;
     if (this.swingMode() === 2 && this.isPlayer) { wx *= 0.45; wz *= 0.45; }
     if (this.stun > 0 || this.hurtT > 0) { wx *= 0.2; wz *= 0.2; }
@@ -286,11 +355,16 @@ export class Character {
       if (!this.falling && this.y <= 0) { this.y = 0; this.vy = 0; }
     }
     if (this.falling && this.y < -0.9) this.game.onFell(this);
-    const turn = (this.isPlayer ? 8 : 7) * dt;
-    this.yaw = angApproach(this.yaw, this.faceYaw, turn);
+    this.turn(dt);
+  }
+
+  turn(dt) {
+    const rate = this.isPlayer ? 8 : this.titan ? 1.2 : this.heavy ? 2.5 : 7;
+    this.yaw = angApproach(this.yaw, this.faceYaw, rate * dt);
     const sp = Math.hypot(this.vx, this.vz);
     const back = this.vx * this.forwardX + this.vz * this.forwardZ < -0.3 * sp ? -1 : 1;
-    this.phase += back * sp * dt / STRIDE * Math.PI * 2;
+    const lm = this.isPlayer || this.titan ? this.legMask : 3;
+    this.phase += back * sp * dt / ((lm === 3 ? STRIDE : STRIDE * 0.6) * this.S) * Math.PI * 2;
   }
 
   // ---------- animasyon ----------
@@ -298,8 +372,17 @@ export class Character {
   animate(dt) {
     const P = this.tpose;
     const sp = Math.hypot(this.vx, this.vz);
-    if (this.y > 0.05 || this.falling) POSES.air(P, this.t);
-    else blendPose(P, POSES.guard(_a, this.t), POSES.run(_b, this.phase), clamp(sp / (this.isPlayer ? 3.2 : 2), 0, 1));
+    const lm = this.isPlayer || this.titan ? this.legMask : 3;
+    let phFixed = null;
+    if (this.mount) { POSES.ride(P, this.mount.phase); phFixed = 0.02; }
+    else if (this.y > 0.05 || this.falling) POSES.air(P, this.t);
+    else if (lm === 3) blendPose(P, POSES.guard(_a, this.t), POSES.run(_b, this.phase), clamp(sp / (this.isPlayer ? 3.2 : 2), 0, 1));
+    else if (lm) { POSES.hop(P, this.phase, sp > 0.5); P.side = lm === 1 ? 0.1 : -0.1; }
+    else {
+      POSES.stumps(P, this.phase, sp > 0.5);
+      const p = this.rag.pts;
+      phFixed = p[J.LKNEE].attached && p[J.RKNEE].attached ? this.d.th * 0.85 + 0.08 * this.S : 0.3 * this.S;
+    }
 
     // Savuruşun gövdeye etkisi: burulma ve hamle adımı.
     const mode = this.swingMode(), s = this.swing;
@@ -321,7 +404,7 @@ export class Character {
     if (this.hurtT > 0 || this.stun > 0) { P.lean = -0.25; P.headP = 0.3; }
     if (this.state === 'cheer' && !this.isPlayer) { P.lean = -0.1; P.headP = -0.4; }
     approachPose(this.pose, P, damp(mode === 2 || this.isPlayer ? 24 : 12, dt));
-    poseFK(this.pose, this.d, this.local, this.footR);
+    poseFK(this.pose, this.d, this.local, this.footR, lm, phFixed);
     this.computeSword(dt);
     this.applyArms();
     this.localToWorld();
@@ -355,7 +438,7 @@ export class Character {
     if (this.isPlayer && this.hasSword) {
       // Kılıç joystick yönüne bakar; hızlı dönerken göğüs hizasına iner, yavaşken yukarı çapraz durur.
       const rel = wrapAngle(this.yaw - this.swYaw);
-      const spd = clamp(Math.abs(this.swW) / 7, 0, 1);
+      const spd = this.flying ? 1 : clamp(Math.abs(this.swW) / 7, 0, 1);
       const pitch = lerp(0.45, 0.02, spd) + Math.sin(this.phase) * 0.03;
       const sr = Math.sin(rel), cr = Math.cos(rel), cp = Math.cos(pitch);
       d[0] = sr * cp; d[1] = Math.sin(pitch); d[2] = cr * cp;

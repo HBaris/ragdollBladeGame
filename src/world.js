@@ -277,12 +277,21 @@ export class World {
     this.env = null;
   }
 
-  set(name) {
+  // big: at ve titan seviyeleri için geniş alan (kayalar gizlenir, gölge alanı büyür).
+  set(name, big = false) {
     if (this.env) this.env.group.visible = false;
     const e = this.envs[name];
     this.env = e;
     this.name = name;
     e.group.visible = true;
+    this.radius = big ? 62 : e.radius;
+    for (const p of e.props || []) p.visible = !big;
+    const sc = this.sun.shadow.camera, r = big ? 26 : 11;
+    if (sc.right !== r) {
+      sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r; sc.far = big ? 120 : 70;
+      sc.updateProjectionMatrix();
+    }
+    this.shadowDist = big ? 60 : 30;
     const u = this.sky.material.uniforms;
     u.top.value.set(e.sky[0]); u.horizon.value.set(e.sky[1]); u.bottom.value.set(e.sky[2]);
     this.scene.fog = new THREE.Fog(e.sky[1], e.fog[0], e.fog[1]);
@@ -303,7 +312,7 @@ export class World {
   inside(x, z, m) {
     const e = this.env;
     if (e.floe) return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) - m;
-    return Math.hypot(x, z) < e.radius - m;
+    return Math.hypot(x, z) < this.radius - m;
   }
 
   // Buz sahanlığının sınırı: köşeli çokgenin verilen açıdaki yarıçapı.
@@ -327,7 +336,8 @@ export class World {
   followShadow(x, z) {
     const d = this.sunDir;
     this.sun.target.position.set(x, 0, z);
-    this.sun.position.set(x + d.x * 30, d.y * 30, z + d.z * 30);
+    const k = this.shadowDist || 30;
+    this.sun.position.set(x + d.x * k, d.y * k, z + d.z * k);
   }
 
   update(dt, camPos) {
@@ -379,14 +389,16 @@ export class World {
       m.position.z = Math.sin(a) * r;
       group.add(m);
     }
+    const props = [];
     for (let i = 0; i < 16; i++) {
       const a = Math.random() * Math.PI * 2, r = rand(15, 30);
       const b = boulder(rand(0.6, 2.2), i * 31, 0x8a867e);
       b.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
       group.add(b);
+      props.push(b);
     }
     return {
-      group, radius: 13, floe: null, water: null, waterY: -Infinity, canFall: false,
+      group, props, radius: 13, floe: null, water: null, waterY: -Infinity, canFall: false,
       clouds: this.clouds(group, 9, 170, 45, 90),
       sky: [0x5ea8ea, 0xe6f2fb, 0x9fc58a], fog: [45, 190],
       hemi: [0xd8ecff, 0x4f7a2c, 1.0], sun: [0xfff4e0, 2.6, 0.45, 1, 0.3],

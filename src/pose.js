@@ -42,6 +42,32 @@ export const POSES = {
     o.bob = -0.02;
     return o;
   },
+  // Tek bacakla sekme: kalan bacak gövdenin altında, sekerek ilerler.
+  hop(o, ph, moving) {
+    const s = Math.abs(Math.sin(ph));
+    o.lean = 0.3; o.twist = 0; o.side = 0; o.headP = -0.25;
+    o.lP = 0.15 + (moving ? 0.25 * Math.sin(ph) : 0); o.lB = 0.35 + (moving ? 0.5 * s : 0); o.lS = 0.05;
+    o.rP = o.lP; o.rB = o.lB; o.rS = 0.05;
+    o.bob = moving ? s * 0.13 : Math.sin(ph) * 0.01;
+    return o;
+  },
+  // Bacaksız: güdüklerle itinerek sürünür.
+  stumps(o, ph, moving) {
+    const s = Math.sin(ph);
+    o.lean = 0.5; o.twist = 0; o.side = 0; o.headP = -0.45;
+    o.lP = 0.3 + (moving ? 0.7 * s : 0); o.lB = 0; o.lS = 0.2;
+    o.rP = 0.3 - (moving ? 0.7 * s : 0); o.rB = 0; o.rS = 0.2;
+    o.bob = moving ? Math.abs(s) * 0.1 : 0;
+    return o;
+  },
+  // At sırtında: uyluklar öne ve iki yana açık, baldırlar aşağı sarkık.
+  ride(o, ph) {
+    o.lean = 0.12; o.twist = 0; o.side = 0; o.headP = -0.1;
+    o.lP = 0.95; o.lB = 1.55; o.lS = 1.15;
+    o.rP = 0.95; o.rB = 1.55; o.rS = 1.15;
+    o.bob = Math.sin(ph) * 0.03;
+    return o;
+  },
   air(o) {
     o.lean = 0.1; o.twist = 0; o.side = 0; o.headP = 0.1;
     o.lP = 1.0; o.lB = 1.6; o.lS = 0.25;
@@ -78,10 +104,14 @@ function torsoRot(P, x, y, z) {
 }
 
 // Yerel eklem konumlarını hesaplar. Kollar burada sarkık çizilir; kılıç tutuluyorsa
-// karakter onları IK ile ezer.
-export function poseFK(P, d, out, footR) {
+// karakter onları IK ile ezer. legMask: yere basan bacaklar (bit0 sol, bit1 sağ);
+// phFixed verilirse pelvis yüksekliği bacaklardan değil ondan gelir (bacaksız, at sırtı).
+export function poseFK(P, d, out, footR, legMask = 3, phFixed = null) {
   const aL = -P.lS, aR = P.rS;
-  const ph = Math.max(legDrop(P.lP, P.lB, aL, d), legDrop(P.rP, P.rB, aR, d)) + footR + P.bob;
+  let drop = 0;
+  if (legMask & 1) drop = Math.max(drop, legDrop(P.lP, P.lB, aL, d));
+  if (legMask & 2) drop = Math.max(drop, legDrop(P.rP, P.rB, aR, d));
+  const ph = (phFixed !== null ? phFixed : drop + footR) + P.bob;
   put(out, J.PELVIS, 0, ph, 0);
   let v = torsoRot(P, 0, d.spine, 0);
   const nx = v[0], ny = ph + v[1], nz = v[2];

@@ -17,6 +17,9 @@ export class Input {
     this.touchMode = 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
     this.onKeyAction = null;
     this.stickR = STICK_R;
+    // Kısa dokunuşlar (sürüklemeden): titan seviyesinde halat atar. {x, y} ekran, ya da null = otomatik.
+    this.taps = [];
+    this.tapStart = { t: 0, x: 0, y: 0, moved: 0 };
 
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
@@ -27,7 +30,7 @@ export class Input {
       this.begin('mouse', e.clientX, e.clientY);
     });
     window.addEventListener('mousemove', (e) => { if (this.stick.id === 'mouse') this.drag(e.clientX, e.clientY); });
-    window.addEventListener('mouseup', () => { if (this.stick.id === 'mouse') this.stick.id = null; });
+    window.addEventListener('mouseup', () => { if (this.stick.id === 'mouse') this.end(); });
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     const o = { passive: false };
     el.addEventListener('touchstart', (e) => this.onTouchStart(e), o);
@@ -38,12 +41,23 @@ export class Input {
 
   press() { Sfx.init(); this.anyPress = true; }
 
-  begin(id, x, y) { Object.assign(this.stick, { id, ox: x, oy: y, x, y }); }
+  begin(id, x, y) {
+    Object.assign(this.stick, { id, ox: x, oy: y, x, y });
+    Object.assign(this.tapStart, { t: performance.now(), x, y, moved: 0 });
+  }
+
+  // Parmak kalkınca: kısa ve kıpırdamadan yapılan basış "dokunuş" sayılır.
+  end() {
+    const s = this.tapStart;
+    if (performance.now() - s.t < 260 && s.moved < 14) this.taps.push({ x: s.x, y: s.y });
+    this.stick.id = null;
+  }
 
   // Parmak çok uzaklaşırsa joystick merkezi peşinden gelir: yön değiştirmek hep kolay kalır.
   drag(x, y) {
     const s = this.stick;
     s.x = x; s.y = y;
+    this.tapStart.moved = Math.max(this.tapStart.moved, Math.hypot(x - this.tapStart.x, y - this.tapStart.y));
     const dx = x - s.ox, dy = y - s.oy, l = Math.hypot(dx, dy), max = this.stickR * 1.3;
     if (l > max) { s.ox = x - dx / l * max; s.oy = y - dy / l * max; }
   }
@@ -53,6 +67,7 @@ export class Input {
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(c)) e.preventDefault();
     if (down && !e.repeat) {
       this.press();
+      if (c === 'Space') this.taps.push(null);
       if (this.onKeyAction) this.onKeyAction(c);
     }
     this.keys[c] = down;
@@ -75,7 +90,7 @@ export class Input {
   onTouchEnd(e) {
     e.preventDefault();
     Sfx.init();
-    for (const t of e.changedTouches) if (t.identifier === this.stick.id) this.stick.id = null;
+    for (const t of e.changedTouches) if (t.identifier === this.stick.id) this.end();
   }
 
   // x sağ, y ileri; mag 0..1
@@ -96,7 +111,7 @@ export class Input {
     return { x, y, mag };
   }
 
-  clear() { this.anyPress = false; }
+  clear() { this.anyPress = false; this.taps.length = 0; }
 
   endFrame() { this.anyPress = false; }
 }
