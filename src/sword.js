@@ -112,7 +112,7 @@ export class LooseSword {
       for (const p of [this.a, this.b]) {
         const g = env.ground(p.x, p.z);
         if (p.y < g + 0.02 && p.py > g - 0.2) {
-          if (p === tip && tipVy < -4 && (this.b.y - this.a.y) / this.L < -0.55) {
+          if (p === tip && !env.noStick && tipVy < -4 && (this.b.y - this.a.y) / this.L < -0.55) {
             // Uç önce, dik ve hızlı: toprağa saplan.
             this.stuck = true;
             p.y = g - 0.12;

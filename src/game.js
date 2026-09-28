@@ -16,7 +16,9 @@ const PLAYER_COLOR = 0xffa51f;
 const ENEMY_COLOR = 0xa51cff;
 const BOSS_COLOR = 0x6a12c2;
 const TITAN_COLOR = 0xb45cf0;
-const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform' };
+const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara' };
+// Düello ortamları: her tek seviye karanlık ızgara, arada diğerleri sırayla.
+const DUEL_ENVS = ['meadow', 'ice', 'dojo'];
 const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'horse', 'duel', 'boss', 'roof', 'titan'];
 const DEATH_QUIPS = [
   'Ragdoll fiziği 1 — Sen 0',
@@ -35,7 +37,7 @@ export function levelSpec(n) {
   if (type === 'roof') return { type, env: 'roof', big: false, skill, boss: false, enemies: new Array(Math.min(4, 2 + round)).fill('normal') };
   if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
   if (type === 'titan') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan'] };
-  const env = ['meadow', 'ice', 'dojo'][(n - 1) % 3];
+  const env = n % 2 ? 'grid' : DUEL_ENVS[Math.floor(n / 2) % 3];
   const boss = type === 'boss';
   const enemies = [];
   if (boss) {
@@ -176,7 +178,8 @@ export class Game {
     this.world.set(spec.env, spec.big);
     this.fx.setDecalParent(this.world.env.plat || this.scene);
     this.tiltWarned = false;
-    const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : -3.2;
+    this.titanHinted = false;
+    const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : -6;
     this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED });
     if (spec.type === 'horse') {
       this.horse = new Horse(this.scene, 0, 0, 0);
@@ -187,21 +190,23 @@ export class Game {
       const o = { team: 'enemy', hp: 1, skill: spec.skill, color: ENEMY_COLOR, yaw: Math.PI };
       if (type === 'titan') {
         // Titan: ~12 m boyunda, yavaş; kılıcı görünmez, "kılıç" onun kollarının savuruşu.
-        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 3, speed: 1.7, skill: spec.skill * 0.5, color: TITAN_COLOR });
+        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 1, speed: 2.6, skill: 0.4 + spec.skill * 0.6, color: TITAN_COLOR });
       } else if (type === 'big') {
         // At seviyesi: normalden iri ama ağır düşmanlar, geniş alana dağılmış.
         const a = (i / m) * Math.PI * 2 + rand(-0.3, 0.3), r = rand(16, 28);
-        Object.assign(o, { x: Math.sin(a) * r, z: Math.cos(a) * r, scale: 1.6, speed: 1.6, skill: spec.skill * 0.5, heavy: true });
+        Object.assign(o, { x: Math.sin(a) * r, z: Math.cos(a) * r, scale: 1.6, speed: 2.4, skill: spec.skill * 0.5, heavy: true });
       } else {
         const boss = type === 'boss';
         Object.assign(o, {
-          x: (i - (m - 1) / 2) * 1.9, z: 3.6 + (i % 2) * 0.9,
+          x: (i - (m - 1) / 2) * 2.6, z: 6.5 + (i % 2) * 1.2,
           hp: boss ? 3 : 1, armored: boss, scale: boss ? 1.38 : 1,
-          color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 2.1 : lerp(2.1, 3.3, spec.skill),
+          // Boss iri ve dayanıklı ama ağırkanlı: yavaş hazırlanır, seyrek saldırır.
+          skill: boss ? spec.skill * 0.5 : spec.skill, boss,
+          color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 3.2 : lerp(3.4, 5.4, spec.skill),
         });
       }
       const e = this.addChar(o);
-      if (e.titan) { this.titan = e; e.swordMesh.visible = false; }
+      if (e.titan) { this.titan = e; e.swordMesh.visible = false; e.neckHp = 3; e.steamT = rand(5, 7); }
       this.enemies.push(e);
     });
     this.phase = 'play';
@@ -216,16 +221,17 @@ export class Game {
     this.hud.setLevel(n);
     const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
     this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || spec.type === 'titan' ? 'boss' : '');
-    if (spec.type !== 'duel' && spec.type !== 'boss') this.hintT = Math.max(this.hintT, 6);
+    if ((spec.type !== 'duel' && spec.type !== 'boss') || spec.env === 'grid') this.hintT = Math.max(this.hintT, 6);
     this.input.clear();
   }
 
   restartLevel() { this.startLevel(this.level); }
 
-  // Ayarlardan: bulunduğun seviyeden sonraki ilk at / titan / platform seviyesine atla.
+  // Ayarlardan: bulunduğun seviyeden sonraki ilk at / titan / platform seviyesine ya da
+  // ızgara ortamına atla.
   jumpTo(type) {
     let n = this.level;
-    while (levelSpec(n).type !== type) n++;
+    while (levelSpec(n).type !== type && levelSpec(n).env !== type) n++;
     this.startLevel(n);
   }
 
@@ -264,7 +270,8 @@ export class Game {
   step(h) {
     this.h = h;
     this.time += h;
-    this.world.step(h);
+    this.world.step(h, this.player);
+    if (this.titan && this.titan.alive) this.titanSteam(this.titan, h);
     if (this.horse) this.horse.update(h, this.player.alive ? this.player.stickW : null, this.world);
     for (const c of this.chars) { c.copyBlade(); c.update(h); }
     this.separate();
@@ -428,6 +435,29 @@ export class Game {
     const hr = rag.d.headR * 1.3 + 0.6;
     if (ptOut.d2 < hr * hr && ptOut.t < bs) best = { bone: 'head', u: 0, x: h.x, y: h.y, z: h.z };
     return best;
+  }
+
+  // Titan ara ara ensesinden buhar püskürtür: yakınındakini halatıyla birlikte savurur.
+  // Önce buhar tüter (uyarı), sonra patlar. Enseye darbe yiyince hemen üfler.
+  titanSteam(t, h) {
+    const N = t.rag.pts[J.NECK], pl = this.player;
+    t.steamT -= h;
+    const warn = t.steamT < 0.9 && t.steamT > 0;
+    if (warn && Math.random() < h * 40) this.fx.dust(N.x + rand(-1, 1), N.y + 0.5, N.z + rand(-1, 1), rand(-2, 2), rand(-2, 2));
+    if (t.steamT > 0) return;
+    t.steamT = rand(6, 9) * lerp(1, 0.7, t.skill);
+    for (let i = 0; i < 40; i++) this.fx.dust(N.x + rand(-1.5, 1.5), N.y + rand(-1, 1.5), N.z + rand(-1.5, 1.5), rand(-9, 9), rand(-9, 9));
+    Sfx.splash();
+    if (!pl.alive) return;
+    const dx = pl.x - N.x, dy = pl.y + 1 - N.y, dz = pl.z - N.z, d = Math.hypot(dx, dy, dz) || 1;
+    if (d > 11) return;
+    const k = 16 * (1 - d / 14);
+    pl.vx += dx / d * k; pl.vz += dz / d * k; pl.vy = Math.max(pl.vy, 5);
+    pl.y = Math.max(pl.y, pl.gy + 0.05);
+    pl.rope = null;
+    pl.kb = 0.5;
+    this.fx.popup(pl.x, pl.y + 2, pl.z, 'BUHAR!', '#ffffff', 26, 1.1);
+    this.shake(0.2);
   }
 
   knock(c, dx, dz, speed) {
@@ -655,9 +685,17 @@ export class Game {
       return;
     }
 
-    // Boss son canına kadar hiç kopmaz, sadece yaralanır.
-    const armored = wasAlive && o.armored && o.hp > 1;
+    const kind = hit.head ? 'neck' : rag.bones[hit.bone].kind;
+    // Kopmuş parçaya vurmak gövdeye vurmak sayılmaz.
+    const onBody = hit.head || rag.pts[rag.bones[hit.bone].a].attached;
+    // Boss son canına kadar hiç kopmaz, sadece yaralanır. Titanın gövdesi kesilemeyecek kadar
+    // kalın; ensesi ancak üçüncü darbede kopar.
+    const neckSafe = o.titan && (o.neckHp > 1 || this.time < (o.neckCd || 0));
+    const armored = wasAlive && ((o.armored && o.hp > 1) || (o.titan && (kind === 'torso' || (kind === 'neck' && neckSafe))));
+    const P = rag.pts, ends = [J.LHAND, J.RHAND, J.LFOOT, J.RFOOT].map((i) => P[i].attached);
     const res = armored ? null : this.applyCut(rag, hit);
+    // Bu darbeyle yeni kopan el/ayak var mı (güdüğü tekrar kesmek sayılmaz)?
+    const lost = [J.LHAND, J.RHAND, J.LFOOT, J.RFOOT].some((i, k) => ends[k] && !P[i].attached);
     rag.addVel(vx * 0.2, vy * 0.2 + 0.6, vz * 0.2, this.h);
     this.gore(rag, res, hit, vx, vy, vz);
     if (a.swordMesh) {
@@ -666,37 +704,9 @@ export class Game {
       bm.color.setRGB(lerp(0.89, 0.75, a.blood), lerp(0.91, 0.12, a.blood), lerp(0.93, 0.15, a.blood));
     }
     if (!wasAlive) return;
+    if (o.titan) { if (onBody) this.hitTitan(o, a, (res && res.kind === 'neck') || lost ? res : null, kind, vx, vy, vz); return; }
 
-    if (o.titan && res && (res.kind === 'arm' || res.kind === 'leg')) {
-      // Titan uzuv kaybederek devam eder; boyun/gövde ya da 3. kesik onu düşürür.
-      o.hp--;
-      if (res.kind === 'arm') o.checkGrip();
-      if (o.hp > 0) {
-        o.flash = 0.15; o.stun = 0.8; o.state = 'stagger'; this.cancelSwing(o);
-        this.fx.popup(o.x, 9, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
-        this.fx.popup(o.x, 7.5, o.z, `${o.hp} CAN KALDI`, '#fff', 18, 1.1);
-        this.slowmo(0.2, 0.3);
-        this.shake(0.15);
-        return;
-      }
-      this.killEnemy(o, a, res, vx, vy, vz);
-      return;
-    }
-    if (res && res.kind === 'arm') {
-      o.checkGrip();
-      o.flash = 0.1;
-      if (!o.hasSword) {
-        o.state = 'panic';
-        o.grudge = null;
-        this.fx.popup(o.x, 2.1 * o.S, o.z, 'AAAA!', '#fff', 22, 1.2);
-      } else {
-        o.stun = 0.45; o.state = 'stagger';
-        this.fx.popup(o.x, 2.1 * o.S, o.z, 'KOLSUZ!', '#ffd23f', 18, 1);
-      }
-      this.knock(o, vx, vz, 2.5);
-      this.slowmo(0.08, 0.35);
-      return;
-    }
+    // Sıradan düşman tek vuruşta ölür (kol dahil); boss canı bitene kadar dayanır.
     if (!res) o.hp--; else o.hp = 0;
     if (o.hp > 0) {
       o.flash = 0.12; o.stun = 0.5; o.state = 'stagger';
@@ -710,6 +720,40 @@ export class Game {
     this.killEnemy(o, a, res, vx, vy, vz);
   }
 
+  // Titan: kolu, bacağı gitse de savaşır (bacaksızsa sürünür), gövdesi kesilmeyecek kadar
+  // kalın. Sadece ense (boyun ya da kafa) kesilince düşer.
+  hitTitan(o, a, res, kind, vx, vy, vz) {
+    if (res && res.kind === 'neck') { this.killEnemy(o, a, res, vx, vy, vz); return; }
+    o.flash = 0.15;
+    const y = o.rag.pts[J.NECK].y + 1;
+    if (kind === 'neck') {
+      // Enseye isabet ama kopmadı: titan sendeler, öfkelenir (hemen buhar üfler).
+      // Aynı dalışta ikinci kez sayılmaz.
+      if (this.time < (o.neckCd || 0)) return;
+      o.neckCd = this.time + 0.8;
+      o.neckHp--;
+      o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
+      o.steamT = Math.min(o.steamT, 0.9);
+      this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 30, 0.6, 6);
+      this.fx.popup(o.x, y, o.z, `ENSE! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
+      this.slowmo(0.2, 0.3);
+      this.shake(0.2);
+      Sfx.slice();
+      return;
+    }
+    if (res) {
+      if (res.kind === 'arm') o.checkGrip();
+      o.stun = 0.35; o.state = 'stagger'; this.cancelSwing(o);
+      this.fx.popup(o.x, y, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
+      if (!this.titanHinted) { this.titanHinted = true; this.fx.popup(o.x, y - 1.6, o.z, 'Ölmedi! ENSESİNİ kes', '#fff', 20, 1.8); }
+      this.slowmo(0.15, 0.35);
+      this.shake(0.15);
+    } else {
+      this.fx.popup(a.x, a.y + 2.2, a.z, kind === 'torso' ? 'ÇOK KALIN!' : 'SIYRIK', '#fff', 18, 0.8);
+      Sfx.thud(900);
+    }
+  }
+
   // Oyuncunun tek canı var ama rakipler kadar kolay ölmez: gövde darbesi kesmez, savurur;
   // bacak gidince tek ayakla seker, ikisi gidince güdüklerle sürünür; bir kol gidince
   // diğeriyle tutar. Kafa ya da iki kol giderse ölüm.
@@ -720,7 +764,13 @@ export class Game {
     this.hud.flash = 0.6;
     this.shake(0.15);
     this.cancelSwing(o);
-    const res = kind === 'torso' ? null : this.applyCut(rag, hit);
+    let res = kind === 'torso' ? null : this.applyCut(rag, hit);
+    if (!res && a.titan) {
+      // Titanın darbesi gövdeye gelse de bir uzvunu koparır.
+      const limbs = [];
+      rag.bones.forEach((b, i) => { if ((b.kind === 'arm' || b.kind === 'leg') && rag.pts[b.a].attached && rag.pts[b.b].attached && b.len > MIN_CUT_LEN) limbs.push(i); });
+      if (limbs.length) res = rag.cut(pick(limbs), 0.5);
+    }
     rag.addVel(vx * 0.25, vy * 0.2 + 1.2, vz * 0.25, this.h);
     this.gore(rag, res, hit, vx, vy, vz);
     const P = rag.pts;
@@ -748,11 +798,12 @@ export class Game {
     o.rag.addVel(vx * 0.45, vy * 0.3 + 2.5, vz * 0.45, h);
     o.rag.addSpin(rand(-5, 5), rand(-3, 3), rand(-5, 5), h);
     const y = 2.2 * o.S;
-    if (o.titan) { this.fx.popup(o.x, 8, o.z, 'TİTAN DÜŞTÜ!', '#ffd23f', 34, 1.6); this.shake(0.3); }
+    if (o.titan) { this.fx.popup(o.x, 8, o.z, 'ENSESİ KESİLDİ! TİTAN DÜŞTÜ!', '#ffd23f', 30, 1.8); this.shake(0.3); }
     if (res) {
       if (res.kind === 'neck') this.fx.popup(o.x, y, o.z, 'KAFA GİTTİ!', '#ffd23f', 26, 1.2);
       else if (res.kind === 'torso') this.fx.popup(o.x, y, o.z, 'İKİYE BÖLÜNDÜ!', '#ffd23f', 26, 1.2);
       else if (res.kind === 'leg') this.fx.popup(o.x, y, o.z, 'BACAKSIZ!', '#ffd23f', 24, 1.2);
+      else if (res.kind === 'arm') this.fx.popup(o.x, y, o.z, 'KOL GİTTİ!', '#ffd23f', 24, 1.2);
     }
     const ep = a ? a.curEp : null;
     if (ep) {
@@ -788,9 +839,9 @@ export class Game {
   onFell(c) {
     if (!c.alive) return;
     c.die();
-    const roof = !!this.world.env.roof;
-    this.fx.popup(c.x, c.gy + 1.2, c.z, roof ? 'AŞAĞI DÜŞTÜ!' : 'SUYA DÜŞTÜ!', '#9be7ff', 24, 1.3);
-    if (c.isPlayer) this.lose(roof ? 'Platformdan düştün.' : 'Suya düştün.'); else {
+    const e = this.world.env, drop = !!(e.roof || e.grid);
+    this.fx.popup(c.x, c.gy + 1.2, c.z, drop ? 'AŞAĞI DÜŞTÜ!' : 'SUYA DÜŞTÜ!', '#9be7ff', 24, 1.3);
+    if (c.isPlayer) this.lose(e.roof ? 'Platformdan düştün.' : e.grid ? 'Boşluğa düştün.' : 'Suya düştün.'); else {
       Sfx.combo(5);
       this.checkWin();
     }
@@ -830,7 +881,7 @@ export class Game {
     const s = Math.sin(this.camYaw), c = Math.cos(this.camYaw);
     _v.set(fx - s * dist, height + py * (type === 'titan' ? 0.85 : 1), fz - c * dist);
     if (snap) this.camera.position.copy(_v); else this.camera.position.lerp(_v, damp(7, dt));
-    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : type === 'roof' ? py : 0), fz + c * ahead);
+    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : type === 'horse' ? 0 : py), fz + c * ahead);
     if (snap) this.lookAt.copy(look); else this.lookAt.lerp(look, damp(9, dt));
     this.camera.lookAt(this.lookAt);
     if (this.shakeAmt > 0.001) {
@@ -874,6 +925,6 @@ export class Game {
     const pl = this.player, P = pl.rag.pts[J.PELVIS];
     this.world.followShadow(P.x, P.z);
     this.renderer.render(this.scene, this.camera);
-    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT, this.player, this.spec.type);
+    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT, this.player, this.spec.env === 'grid' ? 'grid' : this.spec.type);
   }
 }

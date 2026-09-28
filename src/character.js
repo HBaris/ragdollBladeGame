@@ -5,10 +5,10 @@ import { createSwordMesh, BLADE_START } from './sword.js';
 import { CharacterView } from './view.js';
 import { Sfx } from './audio.js';
 
-export const PLAYER_SPEED = 4.6;
+export const PLAYER_SPEED = 7;
 export const BLADE_LEN = 0.95;
 const A0 = -1.95, A1 = 1.7; // titan savuruş yayı (radyan)
-const STRIDE = 1.5;
+const STRIDE = 1.9;
 // Kılıç joystick yönüne yayla döner. Yeterince hızlı dönerken keser.
 // Oyuncu ve (titan dışındaki) düşmanlar aynı modeli kullanır.
 const AIM_K = 230, AIM_MAXW = 15;
@@ -16,13 +16,14 @@ export const ACTIVE_W = 3.2;   // bu açısal hızın (rad/s) üstünde bıçak 
 const ACTIVE_END = 2.2;
 const MAX_ARM_LEAD = 2.0;      // kılıç gövdenin en fazla bu kadar önüne geçebilir (rad)
 // Drift: yavaşken çevik, hızlanınca yanal tutunma ve fren zayıflar (m/s²).
-const GRIP_SLOW = 36, GRIP_FAST = 5, BRAKE_FAST = 6.5;
+const GRIP_SLOW = 36, GRIP_FAST = 3.2, BRAKE_FAST = 4.2;
 const SLIDE_MIN = 0.07;        // bu eğimin altında zemin kaydırmaz
 
 // Titan yerdeki oyuncuya tepeden/çapraz vurur, havadakine yatay savurur.
 const TITAN_LOW = [[0, -1], [0.7, -0.7], [-0.7, -0.7]];
-const TITAN_HIGH = [[1, 0], [-1, 0]];
+const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1]];
 const _sad = { x: 0, y: 0, z: 0 };
+const _tm = { vy: 0, px: 0, pz: 0 };
 
 const _a = makePose(), _b = makePose(), _c = makePose(), _d = makePose();
 const _ik = [0, 0, 0, 0, 0, 0];
@@ -33,6 +34,7 @@ export class Character {
     this.isPlayer = o.team === 'player';
     this.titan = !!o.titan;
     this.heavy = !!o.heavy;     // at seviyesinin iri ve ağır düşmanları
+    this.boss = !!o.boss;       // iri, dayanıklı ama ağırkanlı
     // Titan dışında herkes kılıcı "joystick" ile kullanır: çubuğun yönü hem koşu hem kılıç yönü.
     this.aimCtl = !this.titan;
     this.S = o.scale || 1;
@@ -41,6 +43,8 @@ export class Character {
     this.vx = 0; this.vz = 0; this.vy = 0;
     this.slideX = 0; this.slideZ = 0; // eğimde kayma hızı (kontrolün dışında)
     this.slip = 0; this.slipDir = 1; this.skidding = false;
+    this.brakeK = 0;            // hızlıyken fren: dizüstü kayma pozu
+    this.launchT = 0;           // ızgarada karo fırlattıktan sonraki kısa süre
     this.yaw = o.yaw || 0;
     this.faceYaw = this.yaw;
     this.want = { x: 0, z: 0 };
@@ -64,8 +68,8 @@ export class Character {
     // Kılıç: hedef yön (aimYaw), gerçek yön (swYaw), açısal hız (swW), kesme dalgası (episode).
     this.aimYaw = this.yaw; this.swYaw = this.yaw; this.swW = 0; this.episode = null; this.pokeCd = 0;
     // Yay sertliği: acemi düşman biraz yavaş, ağır düşman çok yavaş savurur.
-    this.aimK = this.isPlayer ? AIM_K : this.heavy ? 80 : lerp(150, AIM_K, this.skill);
-    this.aimMaxW = this.isPlayer ? AIM_MAXW : this.heavy ? 8 : lerp(12, AIM_MAXW, this.skill);
+    this.aimK = this.isPlayer ? AIM_K : this.heavy ? 80 : this.boss ? 100 : lerp(150, AIM_K, this.skill);
+    this.aimMaxW = this.isPlayer ? AIM_MAXW : this.heavy ? 8 : this.boss ? 10 : lerp(12, AIM_MAXW, this.skill);
     this.aimC = 1.52 * Math.sqrt(this.aimK); // ~0.76 sönüm
     // Düşmanın sanal joystick'i: açı (aimA), saldırı planı, kendisini kesene kin.
     this.aimA = this.yaw; this.plan = null; this.grudge = null; this.grudgeT = 0;
@@ -140,6 +144,7 @@ export class Character {
     this.counterT = Math.max(0, this.counterT - dt);
     this.pokeCd = Math.max(0, this.pokeCd - dt);
     this.grudgeT = Math.max(0, this.grudgeT - dt);
+    this.launchT = Math.max(0, this.launchT - dt);
     if (this.isPlayer) this.thinkPlayer(); else if (this.aimCtl) this.thinkEnemy(dt); else this.thinkTitan(dt);
     if (this.aimCtl) { this.applyStick(); this.updateAim(dt); }
     if (this.mount) this.ride(); else this.move(dt);
@@ -271,12 +276,30 @@ export class Character {
     if (sp > 30) { this.vx *= 30 / sp; this.vy *= 30 / sp; this.vz *= 30 / sp; }
     this.x += this.vx * dt; this.y += this.vy * dt; this.z += this.vz * dt;
     const R = Math.hypot(this.x, this.z), lim = env.radius - 0.5;
-    if (R > lim) { this.x *= lim / R; this.z *= lim / R; this.vx *= 0.3; this.vz *= 0.3; }
+    if (!env.grid && R > lim) { this.x *= lim / R; this.z *= lim / R; this.vx *= 0.3; this.vz *= 0.3; }
     const g = env.ground(this.x, this.z);
-    if (g > -Infinity && this.y <= g && this.vy <= 0) {
-      this.y = g; this.gy = g; this.vy = 0;
-      this.kb = 0.35; // yere inince biraz kay
+    if (g > -Infinity && this.y <= g) {
+      // Yükselen karo yakaladıysa üstünde taşınır ve fırlatılır.
+      const tv = env.tileMotion(this.x, this.z, _tm).vy;
+      if (this.vy <= tv) {
+        this.y = g; this.gy = g;
+        if (tv > 2.5) this.launch(_tm);
+        else { this.vy = 0; this.kb = 0.35; } // yere inince biraz kay
+      }
     }
+    // Izgaranın kenarından boşluğa uçtuysa düşer.
+    if (g === -Infinity && this.y < this.gy - 0.3) this.falling = true;
+  }
+
+  // Altındaki karo hızla yükseliyor: havaya (halka dalgasında biraz da dışarı) fırla.
+  launch(tm) {
+    this.vy = Math.max(this.vy, Math.min(tm.vy * 1.1, 12));
+    this.y = this.gy + 0.13;
+    if (this.launchT <= 0) {
+      this.vx += tm.px; this.vz += tm.pz;
+      if (!this.isPlayer) this.stun = Math.max(this.stun, 0.45);
+    }
+    this.launchT = 0.4;
   }
 
   // Düşmanlar da oyuncu gibi joystick kullanır: çubuğun yönü hem koşu hem kılıç yönü.
@@ -310,7 +333,7 @@ export class Character {
       case 'approach': {
         const sp = Math.hypot(this.vx, this.vz);
         // Kayarak duracağını hesaba katıp erken bırakır (acemiler yine de kayıp geçer).
-        if (dist < reach + 0.25 + sp * sp * lerp(0.04, 0.09, sk)) { this.state = 'fight'; turnTo(toT, track, 0.25); break; }
+        if (dist < reach + 0.25 + sp * sp * lerp(0.05, 0.1, sk)) { this.state = 'fight'; turnTo(toT, track, 0.25); break; }
         // Koşarken savurma
         if (this.cool <= 0 && dist < reach + 1 + sp * 0.3 && Math.random() < dt * lerp(0.4, 2.5, sk) && this.mayAttack(tg, true)) { this.startFlick(true); break; }
         // Hedefin etrafına yayıl: başkalarıyla aynı yönden gelme.
@@ -361,8 +384,8 @@ export class Character {
   // Koşarken savurmadan önce hep bakar (yan yana koşan arkadaşını biçmesin).
   mayAttack(tg, careful = false) {
     const g = this.game;
-    if (careful || Math.random() < 0.25 + 0.5 * this.skill) {
-      const toT = Math.atan2(tg.x - this.x, tg.z - this.z), R = 1.8 * this.S;
+    if (careful || Math.random() < 0.6 + 0.35 * this.skill) {
+      const toT = Math.atan2(tg.x - this.x, tg.z - this.z), R = 2.2 * this.S;
       for (const o of g.enemies) {
         if (o === this || o === tg || !o.alive) continue;
         if (Math.hypot(o.x - this.x, o.z - this.z) > R) continue;
@@ -381,7 +404,7 @@ export class Character {
       this.plan = { kind: 'spin', t: 0, side, base: this.aimA, dur: rand(0.7, 1.1), rec: 0.35 };
     } else {
       const th = rand(1.1, 1.5);
-      const rate = lerp(2.3, 4.2, sk) * (this.heavy ? 0.55 : 1) * (this.counterT > 0 ? 1.6 : 1);
+      const rate = lerp(2.3, 4.2, sk) * (this.heavy ? 0.55 : this.boss ? 0.7 : 1) * (this.counterT > 0 ? 1.6 : 1);
       this.plan = { kind: 'flick', t: 0, side, base: this.aimA, th, th2: Math.min(2.9 - th, rand(1.2, 1.5)), wind: th / rate, slash: this.heavy ? 0.45 : 0.28, rec: 0.3, run, fired: false };
     }
     this.counterT = 0;
@@ -410,7 +433,7 @@ export class Character {
   endPlan() {
     this.plan = null;
     this.state = 'fight';
-    this.cool = rand(0.5, 1.2) * lerp(1.3, 0.5, this.skill);
+    this.cool = rand(0.5, 1.2) * lerp(1.3, 0.5, this.skill) * (this.boss ? 1.5 : 1);
   }
 
   // Titan: eski usul yapay zekâ; yaklaşır, sırası gelince kollarıyla yay çizerek vurur.
@@ -432,15 +455,20 @@ export class Character {
         if (dist > engage + 0.2) { this.want.x = dx / dist * sp; this.want.z = dz / dist * sp; } else this.state = 'fight';
         break;
       }
-      case 'fight':
+      case 'fight': {
         this.want.x = dx / dist * clamp((dist - engage) * 3, -2, this.speed);
         this.want.z = dz / dist * clamp((dist - engage) * 3, -2, this.speed);
-        if (this.cool <= 0 && dist < engage + 0.35 + this.skill * 0.5 && g.takeAttackToken(this)) {
-          const [ux, uy] = pick(pl.y > 3 ? TITAN_HIGH : TITAN_LOW);
+        const high = pl.y > 3;
+        // Havadakine (ensesine gelene) daha uzaktan da el sallar.
+        if (this.hasSword && this.cool <= 0 && dist < engage + 0.35 + this.skill * 0.5 + (high ? 4 : 0) && g.takeAttackToken(this)) {
+          const [ux, uy] = pick(high ? TITAN_HIGH : TITAN_LOW);
           this.startSwing(ux, uy, false);
+          // Havadaki (halatla gelen) oyuncuya daha çabuk el sallar.
+          if (high) this.swing.wind *= 0.4;
           this.state = 'attack';
         }
         break;
+      }
       case 'attack':
         if (!this.swing) { this.state = 'fight'; this.cool = rand(0.5, 1.3) * lerp(1.3, 0.55, this.skill); }
         break;
@@ -481,9 +509,15 @@ export class Character {
     this.slideX *= sf; this.slideZ *= sf;
     const mvx = this.vx + this.slideX, mvz = this.vz + this.slideZ;
     if (!this.falling) {
-      const nx = this.x + mvx * dt, nz = this.z + mvz * dt;
+      let nx = this.x + mvx * dt, nz = this.z + mvz * dt;
       const m = 0.35 * this.S;
-      if (env.inside(nx, nz, m) || (this.kb > 0 && env.canFall && !env.wallH)) { this.x = nx; this.z = nz; }
+      if (env.solidAt(nx, nz, this.y)) {
+        // Yükselmiş karo duvar gibi: içine yürünmez, kenarı boyunca kayılır.
+        if (!env.solidAt(nx, this.z, this.y)) { nz = this.z; this.vz = 0; this.slideZ = 0; }
+        else if (!env.solidAt(this.x, nz, this.y)) { nx = this.x; this.vx = 0; this.slideX = 0; }
+        else { nx = this.x; nz = this.z; this.vx = 0; this.vz = 0; this.slideX = 0; this.slideZ = 0; }
+      }
+      if (env.inside(nx, nz, m) || ((this.kb > 0 || air) && env.canFall && !env.wallH)) { this.x = nx; this.z = nz; }
       else if (this.overWall(env, mvx, mvz)) { this.x = nx; this.z = nz; }
       else if (env.clampInside(nx, nz, m, this)) { /* sınır boyunca kayar */ }
       else if (env.inside(nx, this.z, m)) { this.x = nx; this.vz = 0; this.slideZ = 0; }
@@ -494,6 +528,7 @@ export class Character {
     } else {
       this.x += mvx * dt; this.z += mvz * dt;
     }
+    if (!this.falling && env.grid && this.y <= this.gy + 0.12 && env.tileMotion(this.x, this.z, _tm).vy > 2.5) this.launch(_tm);
     if (!this.falling && this.vy <= 0 && this.y <= this.gy + 0.12) { this.y = this.gy; this.vy = 0; }
     else {
       this.vy -= GRAVITY * dt;
@@ -507,6 +542,14 @@ export class Character {
     const tgt = air || this.falling ? 0 : clamp((Math.abs(vR) - 0.7) / 2, 0, 1);
     this.slip += (tgt - this.slip) * damp(10, dt);
     if (Math.abs(vR) > 0.3) this.slipDir = Math.sign(vR);
+    // Hızını alamama: tam hızdayken bırakırsan (ya da ters yöne itersen) dizüstü kayarsın.
+    const msp = Math.hypot(mvx, mvz), top = Math.max(this.speed, 1);
+    let bt = 0;
+    if (!air && !this.falling && msp > 0.45 * top) {
+      const wa = (this.want.x * mvx + this.want.z * mvz) / msp;
+      bt = clamp((msp - 0.45 * top) / (0.35 * top), 0, 1) * clamp(1 - wa / msp, 0, 1);
+    }
+    this.brakeK += (bt - this.brakeK) * damp(bt > this.brakeK ? 12 : 5, dt);
     this.turn(dt);
   }
 
@@ -523,7 +566,7 @@ export class Character {
     // Tutunma hız düştükçe hemen geri gelmez: kayma bir süre sürer.
     const k = Math.sqrt(clamp((sp - 0.15 * top) / (0.55 * top), 0, 1));
     const legs = this.legMask === 3 ? 1 : 0.7;
-    const acc = (this.isPlayer ? 17 : 12) * legs;
+    const acc = (this.isPlayer ? 20 : 15) * legs;
     const grip = lerp(GRIP_SLOW, GRIP_FAST, k) * legs, brake = lerp(GRIP_SLOW, BRAKE_FAST, k) * legs;
     const fx = this.vx / sp, fz = this.vz / sp;
     const wl = wx * fx + wz * fz, wlat = -wx * fz + wz * fx;
@@ -557,7 +600,7 @@ export class Character {
 
   // Drift tozu ve lastik gibi gıcırtı.
   skidFx(dt) {
-    const s = this.slip;
+    const s = Math.max(this.slip, this.brakeK);
     if (s > 0.4 && this.y <= this.gy + 0.05 && Math.random() < dt * 45 * s) {
       const p = this.rag.pts[Math.random() < 0.5 ? J.LFOOT : J.RFOOT];
       if (p.attached) this.game.fx.dust(p.x, p.y, p.z, -this.vx * 0.2, -this.vz * 0.2);
@@ -586,6 +629,7 @@ export class Character {
       P.headP += Math.sin(this.phase * 2) * 0.06 * runK;
       // Drift: kayılan yöndeki bacak fren yapar, öbürü boşa çırpınır.
       if (this.slip > 0.02) blendPose(P, P, POSES.skid(_d, this.phase, this.slipDir), this.slip * 0.85);
+      if (this.brakeK > 0.03) blendPose(P, P, POSES.kneel(_d), this.brakeK * 0.9 * (1 - this.slip * 0.6));
     }
     else if (lm) { POSES.hop(P, this.phase, sp > 0.5); P.side = lm === 1 ? 0.1 : -0.1; }
     else {

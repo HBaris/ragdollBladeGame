@@ -23,15 +23,24 @@ export const POSES = {
     o.bob = Math.sin(t * 2.4) * 0.012;
     return o;
   },
+  // Abartılı koşu: öne yatık gövde, yüksek dizler, zıplayan pelvis.
   run(o, ph) {
     const s = Math.sin(ph);
-    o.lean = 0.32; o.twist = -s * 0.12; o.side = 0; o.headP = -0.25;
-    o.lP = 0.15 + 0.75 * s;
-    o.lB = 0.25 + 1.35 * Math.max(0, Math.cos(ph + 0.5));
-    o.rP = 0.15 - 0.75 * s;
-    o.rB = 0.25 + 1.35 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
-    o.lS = 0.08; o.rS = 0.08;
-    o.bob = -Math.abs(Math.cos(ph)) * 0.04 + 0.03;
+    o.lean = 0.44; o.twist = -s * 0.16; o.side = 0; o.headP = -0.32;
+    o.lP = 0.2 + 0.92 * s;
+    o.lB = 0.3 + 1.5 * Math.max(0, Math.cos(ph + 0.5));
+    o.rP = 0.2 - 0.92 * s;
+    o.rB = 0.3 + 1.5 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
+    o.lS = 0.1; o.rS = 0.1;
+    o.bob = -Math.abs(Math.cos(ph)) * 0.07 + 0.05;
+    return o;
+  },
+  // Hızını alamayıp dizüstü kayma: ön ayak ileride fren, arka diz yerde, gövde öne.
+  kneel(o) {
+    o.lean = 0.38; o.twist = 0; o.side = 0; o.headP = -0.2;
+    o.lP = 1.2; o.lB = 1.3; o.lS = 0.18;
+    o.rP = -0.25; o.rB = 1.9; o.rS = 0.15;
+    o.bob = -0.06;
     return o;
   },
   // Saldırı adımı: sol ayak önde, sağ ayak geride.

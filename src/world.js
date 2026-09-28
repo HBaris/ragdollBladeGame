@@ -301,9 +301,18 @@ function placeRope(mesh, L0, ax, ay, az, bx, by, bz) {
 
 // Platformu tutan halatlar (x, z): köşeler, kenarlar ve dövüşün döndüğü ortada 3 m'lik bir
 // halka. Çiftler merkeze göre simetrik: hepsi sağlamken platform düz durur.
-const ROPE_LAYOUT = [[5.3, 5.3], [-5.3, 5.3], [5.3, -5.3], [-5.3, -5.3], [6.0, 0.8], [-6.0, -0.8], [-2, 6.0], [2, -6.0]];
-for (let i = 0; i < 6; i++) { const a = (20 + i * 60) * Math.PI / 180; ROPE_LAYOUT.push([+(Math.sin(a) * 3).toFixed(2), +(Math.cos(a) * 3).toFixed(2)]); }
+const ROPE_LAYOUT = [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4], [-8.4, -8.4], [9.6, 1.3], [-9.6, -1.3], [-3.2, 9.6], [3.2, -9.6]];
+for (let i = 0; i < 6; i++) {
+  const a = (20 + i * 60) * Math.PI / 180, b = (50 + i * 60) * Math.PI / 180;
+  ROPE_LAYOUT.push([+(Math.sin(a) * 4.5).toFixed(2), +(Math.cos(a) * 4.5).toFixed(2)]);
+  ROPE_LAYOUT.push([+(Math.sin(b) * 7.2).toFixed(2), +(Math.cos(b) * 7.2).toFixed(2)]);
+}
 const TILT_K = 1.6, TILT_MAX = 0.42; // halat ağırlık merkezi kaydıkça eğim (dy/dx)
+
+// Karanlık ızgara: boşlukta asılı parlak karolar. Karolar dalga ve pistonlarla yükselip
+// üstündekini havaya fırlatır.
+const TILE = 1.4, GRID_N = 29;
+const RING_COL = new THREE.Color(0x27e3ff), PISTON_COL = new THREE.Color(0xff2bd6), TILE_COL = new THREE.Color(0x2b2e34);
 
 function skyDome() {
   const mat = new THREE.ShaderMaterial({
@@ -374,7 +383,10 @@ export class World {
       ice: this.buildIce(),
       dojo: this.buildDojo(),
       roof: this.buildRoof(),
+      grid: this.buildGrid(),
     };
+    this._m4 = new THREE.Matrix4();
+    this._col = new THREE.Color();
     for (const e of Object.values(this.envs)) { e.group.visible = false; scene.add(e.group); }
     this.env = null;
   }
@@ -388,7 +400,7 @@ export class World {
     e.group.visible = true;
     this.radius = big ? 62 : e.radius;
     for (const p of e.props || []) p.visible = !big;
-    const sc = this.sun.shadow.camera, r = big ? 26 : 11;
+    const sc = this.sun.shadow.camera, r = big ? 26 : 14;
     if (sc.right !== r) {
       sc.left = -r; sc.right = r; sc.top = r; sc.bottom = -r; sc.far = big ? 120 : 70;
       sc.updateProjectionMatrix();
@@ -406,17 +418,24 @@ export class World {
     this.overSpeed = e.overSpeed || 0;  // duvarın üstünden devrilmek için gereken hız
     this.fallDepth = e.fallDepth || 0.9;
     this.gx = this.gz = this.gvx = this.gvz = this.tgx = this.tgz = 0;
+    this.noStick = !!e.grid;            // hareketli karoya kılıç saplanmasın
     if (e.roof) this.resetRoof();
+    if (e.grid) this.resetGrid();
   }
 
   // Platform seviyesinde lekeler platformun yerel uzayında tutulur (yan yatınca onunla gider).
-  get decalLocal() { return !!(this.env && this.env.roof); }
+  get decalLocal() { return !!(this.env && (this.env.roof || this.env.grid)); }
   get ropes() { return this.env && this.env.roof ? this.env.ropes : null; }
+  get grid() { return !!(this.env && this.env.grid); }
   get tilt() { return Math.hypot(this.tgx, this.tgz); }
 
   // Zemin yüksekliği; zemin yoksa (buzun dışı) -Infinity.
   ground(x, z) {
     const e = this.env;
+    if (e.grid) {
+      const k = this.tileAt(x, z);
+      return k < 0 ? -Infinity : e.h[k];
+    }
     if (e.roof) return Math.abs(x) <= e.half && Math.abs(z) <= e.half ? this.gx * x + this.gz * z : -Infinity;
     if (!e.floe) return 0;
     return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) ? 0 : -Infinity;
@@ -424,6 +443,7 @@ export class World {
 
   inside(x, z, m) {
     const e = this.env;
+    if (e.grid) return Math.abs(x) < e.half - m && Math.abs(z) < e.half - m;
     if (e.roof) return Math.abs(x) < e.inner - m && Math.abs(z) < e.inner - m;
     if (e.floe) return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) - m;
     return Math.hypot(x, z) < this.radius - m;
@@ -434,8 +454,8 @@ export class World {
   clampInside(x, z, m, c) {
     const e = this.env;
     if (e.floe) return false;
-    if (e.roof) {
-      const L = e.inner - m - 1e-3;
+    if (e.roof || e.grid) {
+      const L = (e.grid ? e.half : e.inner) - m - 1e-3;
       if (Math.abs(x) > L) { x = Math.sign(x) * L; c.vx = 0; c.slideX = 0; }
       if (Math.abs(z) > L) { z = Math.sign(z) * L; c.vz = 0; c.slideZ = 0; }
     } else {
@@ -483,6 +503,7 @@ export class World {
     this.sky.position.copy(camPos);
     if (this.env.water) this.env.water.material.uniforms.time.value = this.t;
     if (this.env.roof) this.renderRoof(camPos);
+    if (this.env.grid) this.renderGrid();
     for (const c of this.env.clouds || []) {
       c.position.x += dt * 0.6;
       if (c.position.x > 220) c.position.x = -220;
@@ -502,6 +523,195 @@ export class World {
       list.push(s);
     }
     return list;
+  }
+
+  // ---------- karanlık ızgara ----------
+
+  tileAt(x, z) {
+    const e = this.env, N = e.N;
+    const i = Math.floor(x / e.S + N / 2), j = Math.floor(z / e.S + N / 2);
+    return i < 0 || j < 0 || i >= N || j >= N ? -1 : j * N + i;
+  }
+
+  // Ayağının altındaki karonun dikey hızı ve (halka dalgasında) dışa itişi.
+  tileMotion(x, z, out) {
+    const e = this.env;
+    out.vy = 0; out.px = 0; out.pz = 0;
+    if (!e.grid) return out;
+    const k = this.tileAt(x, z);
+    if (k < 0) return out;
+    out.vy = e.v[k]; out.px = e.px[k]; out.pz = e.pz[k];
+    return out;
+  }
+
+  // Yükselmiş karo duvar gibidir: y yüksekliğindeki biri içine yürüyemez.
+  solidAt(x, z, y) {
+    const e = this.env;
+    if (!e.grid) return false;
+    const k = this.tileAt(x, z);
+    return k >= 0 && e.h[k] > y + 0.45;
+  }
+
+  resetGrid() {
+    const e = this.envs.grid;
+    e.h.fill(0); e.v.fill(0); e.px.fill(0); e.pz.fill(0); e.glow.fill(0);
+    e.events.length = 0;
+    e.nextEv = 3;
+    e.dirty.fill(1);
+    this.renderGrid();
+  }
+
+  // Olaylar: (1) halka dalgası: bir noktadan genişleyen halka karoları kaldırır, üstündekini
+  // yukarı ve dışarı fırlatır; (2) piston deseni: karolar önce yanıp söner, sonra bir anda
+  // fırlar. İkisi de önce parlayarak uyarır.
+  spawnGridEvent(f) {
+    const e = this.env, N = e.N, S = e.S;
+    const fx = f ? f.x : 0, fz = f ? f.z : 0;
+    const lim = e.half - 2;
+    if (Math.random() < 0.5) {
+      const a = rand(0, Math.PI * 2), r = rand(2, 7);
+      e.events.push({ kind: 'ring', t: 0, warn: 1.1, x: clamp(fx + Math.cos(a) * r, -lim, lim), z: clamp(fz + Math.sin(a) * r, -lim, lim), speed: 9, maxR: 24, amp: 1.25, width: 1.9 });
+      return;
+    }
+    const ci = clamp(Math.floor(fx / S + N / 2), 0, N - 1), cj = clamp(Math.floor(fz / S + N / 2), 0, N - 1);
+    const tiles = [];
+    const pat = Math.floor(rand(0, 3));
+    if (pat === 0) {
+      // Dama: oyuncunun etrafında 9x9 alanın yarısı.
+      const par = Math.random() < 0.5 ? 0 : 1;
+      for (let j = cj - 4; j <= cj + 4; j++) for (let i = ci - 4; i <= ci + 4; i++) if (i >= 0 && j >= 0 && i < N && j < N && (i + j) % 2 === par) tiles.push(j * N + i);
+    } else if (pat === 1) {
+      // Artı: yakındaki bir satır ve sütun boydan boya.
+      const i0 = clamp(ci + Math.floor(rand(-2, 3)), 0, N - 1), j0 = clamp(cj + Math.floor(rand(-2, 3)), 0, N - 1);
+      for (let k = 0; k < N; k++) { tiles.push(j0 * N + k); if (k !== j0) tiles.push(k * N + i0); }
+    } else {
+      // Serpiştir: yakında rastgele 16 karo.
+      for (let n = 0; n < 16; n++) {
+        const i = clamp(ci + Math.floor(rand(-5, 6)), 0, N - 1), j = clamp(cj + Math.floor(rand(-5, 6)), 0, N - 1);
+        tiles.push(j * N + i);
+      }
+    }
+    e.events.push({ kind: 'piston', t: 0, warn: 1.0, up: 0.2, hold: 0.7, down: 0.6, amp: 1.6, tiles });
+  }
+
+  stepGrid(h, focus) {
+    const e = this.env, N = e.N, S = e.S, H = e.h, V = e.v;
+    e.nextEv -= h;
+    if (e.nextEv <= 0) { this.spawnGridEvent(focus); e.nextEv = rand(3.5, 6.5); }
+    const tgt = e.tgt, glow = e.glow, px = e.px, pz = e.pz;
+    tgt.fill(0); glow.fill(0); px.fill(0); pz.fill(0);
+    for (const ev of e.events) {
+      ev.t += h;
+      if (ev.kind === 'ring') {
+        // Halka merkezden sıfır yükseklikle doğar (ani sıçrama karoyu ışınlamasın).
+        const R = (ev.t - ev.warn) * ev.speed - ev.width;
+        const i0 = Math.floor(ev.x / S + N / 2), j0 = Math.floor(ev.z / S + N / 2);
+        if (ev.t < ev.warn) {
+          // Uyarı: merkez karolar yanıp söner.
+          const p = 0.5 + 0.5 * Math.sin(ev.t * 22);
+          for (let j = j0 - 1; j <= j0 + 1; j++) for (let i = i0 - 1; i <= i0 + 1; i++) {
+            if (i < 0 || j < 0 || i >= N || j >= N) continue;
+            const k = j * N + i;
+            glow[k] = Math.max(glow[k], p * (i === i0 && j === j0 ? 1 : 0.5));
+            e.gcol[k] = 0;
+          }
+          continue;
+        }
+        const amp = ev.amp * (1 - 0.5 * R / ev.maxR);
+        const r0 = Math.max(0, R - ev.width), r1 = R + ev.width;
+        const ia = Math.max(0, Math.floor((ev.x - r1) / S + N / 2)), ib = Math.min(N - 1, Math.floor((ev.x + r1) / S + N / 2));
+        const ja = Math.max(0, Math.floor((ev.z - r1) / S + N / 2)), jb = Math.min(N - 1, Math.floor((ev.z + r1) / S + N / 2));
+        for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
+          const cx = (i - N / 2 + 0.5) * S, cz = (j - N / 2 + 0.5) * S;
+          const dx = cx - ev.x, dz = cz - ev.z, d = Math.hypot(dx, dz);
+          if (d < r0 || d > r1) continue;
+          const u = (d - R) / ev.width, b = (1 - u * u) * (1 - u * u);
+          const k = j * N + i;
+          if (amp * b > tgt[k]) {
+            tgt[k] = amp * b; glow[k] = Math.max(glow[k], b); e.gcol[k] = 0;
+            const l = d || 1;
+            px[k] = dx / l * 3.5 * b; pz[k] = dz / l * 3.5 * b;
+          }
+        }
+        ev.done = R > ev.maxR + ev.width;
+      } else {
+        const t = ev.t;
+        let y = 0, gl = 0;
+        if (t < ev.warn) gl = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 26));
+        else if (t < ev.warn + ev.up) { y = ev.amp * (t - ev.warn) / ev.up; gl = 1; }
+        else if (t < ev.warn + ev.up + ev.hold) { y = ev.amp; gl = 1; }
+        else { y = ev.amp * Math.max(0, 1 - (t - ev.warn - ev.up - ev.hold) / ev.down); gl = y / ev.amp; }
+        for (const k of ev.tiles) {
+          if (y > tgt[k]) tgt[k] = y;
+          if (gl > glow[k]) { glow[k] = gl; e.gcol[k] = 1; }
+        }
+        ev.done = t > ev.warn + ev.up + ev.hold + ev.down;
+      }
+    }
+    if (e.events.length) e.events = e.events.filter((ev) => !ev.done);
+    const inv = 1 / h;
+    for (let k = 0; k < N * N; k++) {
+      const y = tgt[k];
+      V[k] = clamp((y - H[k]) * inv, -20, 12);
+      if (y !== H[k] || glow[k] !== e.lastGlow[k]) e.dirty[k] = 1;
+      H[k] = y;
+    }
+  }
+
+  renderGrid() {
+    const e = this.env, N = e.N, S = e.S, m = this._m4, c = this._col;
+    let any = false, anyCol = false;
+    for (let k = 0; k < N * N; k++) {
+      if (!e.dirty[k]) continue;
+      e.dirty[k] = 0;
+      const i = k % N, j = (k / N) | 0;
+      m.makeTranslation((i - N / 2 + 0.5) * S, e.h[k], (j - N / 2 + 0.5) * S);
+      e.tiles.setMatrixAt(k, m);
+      any = true;
+      const g = e.glow[k];
+      if (g !== e.lastGlow[k]) {
+        e.lastGlow[k] = g;
+        c.copy(e.base[k]).lerp(e.gcol[k] ? PISTON_COL : RING_COL, clamp(g, 0, 1) * 0.85);
+        e.tiles.setColorAt(k, c);
+        anyCol = true;
+      }
+    }
+    if (any) e.tiles.instanceMatrix.needsUpdate = true;
+    if (anyCol) e.tiles.instanceColor.needsUpdate = true;
+  }
+
+  buildGrid() {
+    const group = new THREE.Group();
+    const N = GRID_N, S = TILE, half = N * S / 2;
+    // Karolar 4 m derin kutular: yükselince altlarında boşluk görünmez, lekeler içinde saklanır.
+    const geo = new THREE.BoxGeometry(S - 0.08, 4, S - 0.08).translate(0, -2, 0);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.28, metalness: 0.3, envMapIntensity: 0.45 });
+    const tiles = new THREE.InstancedMesh(geo, mat, N * N);
+    tiles.receiveShadow = true;
+    tiles.castShadow = true;
+    tiles.frustumCulled = false;
+    const base = [];
+    for (let k = 0; k < N * N; k++) {
+      const col = TILE_COL.clone().offsetHSL(0, 0, (hash(k * 3.7) - 0.5) * 0.025);
+      base.push(col);
+      tiles.setColorAt(k, col);
+    }
+    group.add(tiles);
+    // Karo aralıkları siyah görünsün.
+    const under = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, half * 2), new THREE.MeshBasicMaterial({ color: 0x030303 }));
+    under.rotation.x = -Math.PI / 2;
+    under.position.y = -0.35;
+    group.add(under);
+    const n2 = N * N;
+    return {
+      group, grid: true, tiles, base, N, S, half,
+      h: new Float32Array(n2), v: new Float32Array(n2), tgt: new Float32Array(n2), px: new Float32Array(n2), pz: new Float32Array(n2),
+      glow: new Float32Array(n2), lastGlow: new Float32Array(n2).fill(-1), gcol: new Uint8Array(n2), dirty: new Uint8Array(n2).fill(1),
+      events: [], nextEv: 3,
+      radius: half - 0.3, floe: null, water: null, waterY: -Infinity, canFall: true, fallDepth: 2.5,
+      clouds: [], sky: [0x100b0c, 0x1d1416, 0x030202], fog: [16, 55],
+      hemi: [0xfff4ec, 0x1a1a1a, 0.6], sun: [0xffffff, 2.4, 0.35, 1, 0.25],
+    };
   }
 
   // ---------- halatlı platform ----------
@@ -555,9 +765,11 @@ export class World {
     this.updateTilt();
   }
 
-  // Simülasyon adımı: platform eğim yayı, kopan halat parçaları.
-  step(h) {
+  // Simülasyon adımı: platform eğim yayı ve kopan halatlar ya da ızgara olayları.
+  // focus: olayların yakınında çıkacağı karakter (oyuncu).
+  step(h, focus) {
     const e = this.env;
+    if (e && e.grid) { this.stepGrid(h, focus); return; }
     if (!e || !e.roof) return;
     const K = 18, C = 3.4;
     this.gvx += (K * (this.tgx - this.gx) - C * this.gvx) * h; this.gx += this.gvx * h;
@@ -630,7 +842,7 @@ export class World {
     const plat = new THREE.Group();
     plat.matrixAutoUpdate = false;
     group.add(plat);
-    const half = 7, wallT = 0.3, wallH = 0.45;
+    const half = 11, wallT = 0.3, wallH = 0.45;
     const grid = canvasTex(256, 256, gridTexture);
     grid.wrapS = grid.wrapT = THREE.RepeatWrapping;
     grid.repeat.set(half * 2 / 4, half * 2 / 4);
@@ -643,7 +855,7 @@ export class World {
     slab.castShadow = true;
     plat.add(slab);
     // Alt kirişler (platform yan yatınca görünür).
-    for (const [w, d, x, z] of [[half * 2, 0.5, 0, -3.5], [half * 2, 0.5, 0, 3.5], [0.5, half * 2, -3.5, 0], [0.5, half * 2, 3.5, 0]]) {
+    for (const [w, d, x, z] of [[half * 2, 0.5, 0, -5], [half * 2, 0.5, 0, 5], [0.5, half * 2, -5, 0], [0.5, half * 2, 5, 0]]) {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), under);
       b.position.set(x, -1.05, z);
       plat.add(b);
@@ -717,7 +929,7 @@ export class World {
 
     const fernMat = new THREE.MeshStandardMaterial({ map: canvasTex(128, 256, fernTexture), alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.9 });
     // Dövüş alanının ortası seyrek kalsın ki görüşü kapatmasın.
-    const sparseCenter = (x, z) => Math.hypot(x, z) < 6 && Math.random() < 0.85;
+    const sparseCenter = (x, z) => Math.hypot(x, z) < 20 && Math.random() < 0.85;
     group.add(scatter(plantGeometry(6, 0.42, 1.0, 0.75), fernMat, 320, 1.5, 45, 0.6, 1.5, sparseCenter));
     const tuftMat = new THREE.MeshStandardMaterial({ map: canvasTex(64, 64, tuftTexture), alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 });
     group.add(scatter(plantGeometry(3, 0.35, 0.3, 0.2), tuftMat, 1400, 0.5, 40, 0.6, 1.3));
@@ -733,14 +945,14 @@ export class World {
     }
     const props = [];
     for (let i = 0; i < 16; i++) {
-      const a = Math.random() * Math.PI * 2, r = rand(15, 30);
-      const b = boulder(rand(0.6, 2.2), i * 31, 0x8a867e);
+      const a = Math.random() * Math.PI * 2, r = rand(31, 48);
+      const b = boulder(rand(0.8, 2.6), i * 31, 0x8a867e);
       b.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
       group.add(b);
       props.push(b);
     }
     return {
-      group, props, radius: 13, floe: null, water: null, waterY: -Infinity, canFall: false,
+      group, props, radius: 28, floe: null, water: null, waterY: -Infinity, canFall: false,
       clouds: this.clouds(group, 9, 170, 45, 90),
       sky: [0x5ea8ea, 0xe6f2fb, 0x9fc58a], fog: [45, 190],
       hemi: [0xd8ecff, 0x4f7a2c, 1.0], sun: [0xfff4e0, 2.6, 0.45, 1, 0.3],
@@ -750,10 +962,10 @@ export class World {
   buildIce() {
     const group = new THREE.Group();
     // Düzensiz çokgen buz sahanlığı.
-    const n = 9, floe = [];
+    const n = 12, floe = [];
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + rand(-0.12, 0.12) - Math.PI;
-      const r = rand(7.4, 8.8);
+      const a = (i / n) * Math.PI * 2 + rand(-0.1, 0.1) - Math.PI;
+      const r = rand(14.5, 17);
       floe.push({ a, r, x: Math.cos(a) * r, z: Math.sin(a) * r });
     }
     const shape = new THREE.Shape();
@@ -791,19 +1003,19 @@ export class World {
       m.rotation.y = rand(0, Math.PI);
       group.add(m);
     };
-    makeBerg(7, 20, 6, 9, 34, 1);
-    makeBerg(5, 9, 5, -30, 26, 2);
-    makeBerg(9, 6, 7, -18, -40, 3);
-    makeBerg(4, 13, 4, 38, -12, 4);
-    for (let i = 0; i < 12; i++) {
-      const a = Math.random() * Math.PI * 2, r = rand(11, 30);
+    makeBerg(7, 20, 6, 12, 44, 1);
+    makeBerg(5, 9, 5, -38, 30, 2);
+    makeBerg(9, 6, 7, -22, -46, 3);
+    makeBerg(4, 13, 4, 46, -14, 4);
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2, r = rand(20, 40);
       const c = boulder(rand(0.4, 1.3), i * 7, 0xd9ecfa);
       c.position.set(Math.cos(a) * r, -0.35, Math.sin(a) * r);
       c.castShadow = false;
       group.add(c);
     }
     return {
-      group, floe, water, waterY: -0.35, canFall: true, radius: 8,
+      group, floe, water, waterY: -0.35, canFall: true, radius: 16,
       clouds: this.clouds(group, 7, 170, 40, 80),
       sky: [0x8fc2ee, 0xf4f8fc, 0x6c70d0], fog: [35, 170],
       hemi: [0xeef6ff, 0x8aa6d6, 1.15], sun: [0xffffff, 2.5, -0.4, 1, 0.45],
@@ -819,10 +1031,10 @@ export class World {
     group.add(ground);
     // Arena sınırı: taş halka.
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a8a78, flatShading: true, roughness: 0.9 });
-    for (let i = 0; i < 44; i++) {
-      const a = (i / 44) * Math.PI * 2;
+    for (let i = 0; i < 84; i++) {
+      const a = (i / 84) * Math.PI * 2;
       const s = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.22, 0.34), 0), stoneMat);
-      s.position.set(Math.cos(a) * 11.6, 0.08, Math.sin(a) * 11.6);
+      s.position.set(Math.cos(a) * 22.6, 0.08, Math.sin(a) * 22.6);
       s.castShadow = true;
       group.add(s);
     }
@@ -841,10 +1053,10 @@ export class World {
     beam2.position.y = 5.1;
     torii.add(beam, beam2);
     torii.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-    torii.position.set(0, 0, 18);
+    torii.position.set(0, 0, 30);
     group.add(torii);
     // Taş fenerler
-    for (const [x, z] of [[-6, 15], [6, 15], [-15, -4], [15, -4], [-9, -14], [9, -14]]) {
+    for (const [x, z] of [[-9, 27], [9, 27], [-27, -6], [27, -6], [-16, -24], [16, -24]]) {
       const l = new THREE.Group();
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 1.2, 8), stoneMat);
       base.position.y = 0.6;
@@ -877,7 +1089,7 @@ export class World {
     sunSpr.scale.set(90, 90, 1);
     group.add(sunSpr);
     return {
-      group, radius: 11, floe: null, water: null, waterY: -Infinity, canFall: false,
+      group, radius: 22, floe: null, water: null, waterY: -Infinity, canFall: false,
       clouds: this.clouds(group, 5, 170, 50, 90),
       sky: [0xf4cfa8, 0xf39a66, 0xc98a5a], fog: [40, 170],
       hemi: [0xffe0c0, 0x9a6a40, 1.0], sun: [0xffc08a, 2.4, -0.2, 0.55, 0.8],

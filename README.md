@@ -19,7 +19,7 @@ Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürü
 
 - **Yön = kolların ve kılıcın baktığı yer.** İleri itersen kılıcı öne tutar, sağa çekersen kollar ve kılıç sağa döner. Gövde arkadan gelir.
 - **Az itersen** yerinde durup sadece kılıcı çevirir. **Çok itersen** o yöne koşar.
-- **Koşu drift eder.** Düz koşarken düz gidersin, ama hızlıyken yön değiştirirsen gövde hemen döner, sen savrulmaya devam edersin: bir ayak fren yapar, öbürü boşa çırpınır. Tam hızda 90° dönüşte ~2 m kayarsın, geri dönüşte ~1 m. Yavaşken çeviksin.
+- **Koşu hızlı ve drift eder (7 m/s).** Düz koşarken düz gidersin, ama hızlıyken yön değiştirirsen gövde hemen döner, sen savrulmaya devam edersin: bir ayak fren yapar, öbürü boşa çırpınır. Tam hızda 90° dönüşte ~6 m, geri dönüşte ~4 m kayarsın. Tam hızdayken bırakırsan hızını alamaz, dizüstü kayarsın. Yavaşken çeviksin.
 - **Kesmek için hızlı çevir.** Joystick'i bir yandan öbür yana hızlıca savurursan kılıç savrulur ve değdiği yeri keser. Yavaş dönen ya da düşmana uzatılmış kılıç kesmez, sadece iter.
 - Hızlı savuruşta bıçak göğüs hizasına iner (gövde, kollar). Daha yavaş savuruşta yukarıda kalır (boyun, kafa).
 - Titan seviyesinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
@@ -29,13 +29,17 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 
 ## Oyun
 
-**Seviye döngüsü:** Düello → Düello → **Platform** → **At** → Düello → **Boss** → **Platform** → **Titan**, sonra zorlaşarak tekrar. Ayarlar (dişli) menüsündeki "Platform / At / Titan seviyesine git" düğmeleri doğrudan o seviyelere atlar.
+**Seviye döngüsü:** Düello → Düello → **Platform** → **At** → Düello → **Boss** → **Platform** → **Titan**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Izgara / Platform / At / Titan … git" düğmeleri doğrudan oralara atlar.
+
+- **Karanlık Izgara:** Boşlukta asılı, parlak koyu karolardan ~40 m'lik bir zemin; kenarından düşen ölür. Birkaç saniyede bir:
+  - **Mavi halka:** bir nokta yanıp söner, sonra oradan genişleyen bir halka karoları kaldırır ve üstündekileri havaya ve dışarı fırlatır.
+  - **Pembe pistonlar:** dama, artı ya da serpiştirilmiş karolar yanıp söner, sonra bir anda 1,6 m fırlar. Üstündeki uçar, yanındaki için duvar olur.
 
 - **Tek can, ama kolay ölmezsin.** Gövdene gelen darbe seni kesmez, sadece savurur.
   - Bir bacağın kesilirse tek ayakla sekerek, iki bacağın da giderse güdüklerinle sürünerek devam edersin.
   - Bir kolun giderse kılıcı öbür elinle tutarsın.
   - **İki kolun giderse ya da kafan giderse ölürsün.** Sol üstteki küçük vücut şeması kopan uzuvlarını kırmızı gösterir.
-- **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. Rakipler kafa, gövde ya da bacak kesilince ölür. Kolu kesilen rakip silahını düşürüp panikle kaçabilir; ona kılıcın değmesi yeter.
+- **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. **Sıradan rakip tek vuruşta ölür** (kol dahil); boss 3 darbeye dayanır.
 - **Rakipler de senin gibi oynar.** Onların da tek bir sanal joystick'i var: kılıç koştukları yöne bakar, drift ederler, kesmek için kılıcı bir yana yavaşça çekip (bunu görürsün) hızla öbür yana savururlar. Usta olanlar koşarken savurur, bazen topaç gibi döner. Uzun boylu rakip kılıcını senin göğüs hizana eğer.
 - **Dost ateşi:** Rakiplerin kılıcı yolundaki arkadaşını da keser (**DOST ATEŞİ!**). Kesilen bazen kin tutup ona saldırır (**HEY!**). Dikkatli olanlar arkadaşı yoldaysa bekler, ama her zaman değil.
 - **Savunma:** Kılıçlar çarpışır (**KLANG!**, **BLOK!**). Rakipler seviye ilerledikçe daha sık bloklar, geri sıçrar, karşı saldırı yapar ve seni çevreler.
@@ -44,17 +48,19 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Kılıç da joystick'i takip eder, ama sadece atın önünde ve yanlarında döner.
   - Rakipler iri ama ağır; saldırıya hazırlanmaları uzun sürer.
   - At önüne çıkanı ezip savurur.
-- **Halatlı platform:** Gökyüzünde, kırmızı-beyaz halatlarla asılı küçük bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) sığar.
+- **Halatlı platform:** Gökyüzünde, kırmızı-beyaz halatlarla asılı 22 m'lik bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) var.
   - Halatlar direk gibidir, içinden geçilmez. Savrulan kılıç (seninki ya da rakibinki) değdiği halatı keser (**HALAT KOPTU!**). Alt parça yere kıvrılır, üst parça gökyüzüne fırlar.
   - Platform, halatların kalanlarının ağırlık merkezine göre yan yatar ve sallanarak oturur. Kenardaki halatlar ortadakilerden çok yatırır. Aynı taraftan üç halat giderse ~20°.
   - Eğimde herkes aşağı kayar; koşarak karşı koyabilirsin. Duvar yavaş kaymayı durdurur, ama hızlı çarpan (darbe + kayma) duvarın üstünden devrilip düşer ve ölür.
-- **Titan seviyesi:** Uzakta, ~12 m boyunda bir titan var.
+- **Titan seviyesi:** Uzakta, ~12 m boyunda, hızlı ve saldırgan bir titan var.
   - Sürüklemek her zamanki gibi koşturur ve kılıcı çevirir.
   - **Kısa dokunuş halat atar:** boşluğa dokunursan halat ekran dışına, önde ve yukarıda bir yere takılır ve salınarak ilerlersin. Titana dokunursan halat onun o noktasına takılır ve ona doğru uçarsın.
   - Hızla uçarken kılıç titanın değdiği yerini keser.
-  - Titanın 3 canı var: kol ya da bacak kopunca devam eder (bacaksızsa sürünür). Boynu ya da gövdesi kesilirse veya üç uzvunu kaybederse düşer.
-- **Boss** (düello döngüsünde): daha iri ve 3 canlı; son canına kadar hiçbir yeri kopmaz.
-- **Ortamlar:** Düellolarda Çayır, Buz Sahanlığı (kenardan suya düşen ölür) ve Gün Batımı Dojo sırayla döner. At ve titan seviyeleri geniş bir çayırda, platform seviyeleri gökyüzünde geçer.
+  - **Sadece ensesi öldürür.** Kolu, bacağı kopsa da savaşır (bacaksızsa sürünür); gövdesi kesilemeyecek kadar kalın. Ense ancak **üçüncü** darbede kopar (aynı dalışta iki kez sayılmaz).
+  - **Buhar:** Ensesi tüterse uzaklaş; birkaç saniyede bir (ve enseye her darbe yiyince hemen) buhar püskürtür, yakınındakini halatıyla birlikte savurur.
+  - Havadakine hızlı el sallar; darbesi gövdene gelse bile bir uzvunu koparır.
+- **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
+- **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
 
 ## Geliştirme
 
@@ -75,7 +81,7 @@ npm run dev     # değişiklikte otomatik yeniden paketler
 | `src/view.js` | Jöle gövde ağları, oynak gözler, kırmızı kesitler |
 | `src/sword.js` | Kılıç modeli ve elden düşen kılıç fiziği |
 | `src/game.js` | Seviye döngüsü, dövüş ve hasar kuralları, halat, kamera, ağır çekim |
-| `src/world.js` | Ortamlar, halatlı platformun eğimi ve kopan halatlar; bütün dokular kodla üretiliyor |
+| `src/world.js` | Ortamlar; halatlı platformun eğimi ve kopan halatlar; ızgaranın halka ve piston olayları. Bütün dokular kodla üretiliyor |
 | `src/effects.js` | Kan, lekeler, kıvılcım, su sıçraması |
 | `src/input.js`, `src/hud.js` | Kontroller ve arayüz |
 
