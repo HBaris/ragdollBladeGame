@@ -26,7 +26,7 @@ const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1]];
 const _sad = { x: 0, y: 0, z: 0 };
 const _tm = { vy: 0, px: 0, pz: 0 };
 
-const _a = makePose(), _b = makePose(), _c = makePose(), _d = makePose();
+const _a = makePose(), _b = makePose(), _c = makePose(), _d = makePose(), _e = makePose();
 const _ik = [0, 0, 0, 0, 0, 0];
 
 export class Character {
@@ -45,6 +45,11 @@ export class Character {
     this.slideX = 0; this.slideZ = 0; // eğimde kayma hızı (kontrolün dışında)
     this.slip = 0; this.slipDir = 1; this.skidding = false;
     this.brakeK = 0;            // hızlıyken fren: dizüstü kayma pozu
+    this.low = 0;               // duruş: 0 dik/koşu, 1 çömelmiş (kılıç yere iner)
+    this.lowPref = true;        // düşman, attaki hedefe karşı çömelmez
+    this.runK = 0;              // ne kadar koşuyor (0..1), kılıcın taşınışı için
+    // Herkes biraz farklı koşsun: adım boyu ve yalpalama fazı.
+    this.gait = rand(0.9, 1.12); this.gaitOff = rand(0, Math.PI * 2);
     this.launchT = 0;           // ızgarada karo fırlattıktan sonraki kısa süre
     this.yaw = o.yaw || 0;
     this.faceYaw = this.yaw;
@@ -95,6 +100,11 @@ export class Character {
     this.bCur = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
     this.bPrev = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
     this.bladeLen = o.bladeLen || BLADE_LEN;
+    // Fiziksel kılıç ucu: kaslar onu hedef yöne yayla çeker. Dururken gevşek (sarkar,
+    // sallanır), savururken gergin.
+    this.tip = { init: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, gx: 0, gy: 0, gz: 0, gvx: 0, gvy: 0, gvz: 0, dx: 0, dy: 1, dz: 0, w: 0 };
+    this.bladeKRest = this.isPlayer ? 70 : this.heavy ? 50 : 60;
+    this.bladeKSwing = this.isPlayer ? 420 : this.heavy ? 200 : this.boss ? 260 : lerp(300, 420, this.skill);
     this.swordMesh = createSwordMesh(this.bladeLen);
     this.swordMesh.scale.setScalar(this.S);
     this.view = new CharacterView(this, o.color);
@@ -236,18 +246,8 @@ export class Character {
     this.swW = clamp(this.swW + (this.aimK * err - this.aimC * this.swW) * dt, -this.aimMaxW, this.aimMaxW);
     this.swYaw = wrapAngle(this.swYaw + this.swW * dt);
     this.faceYaw = this.swYaw;
-    // Her yöne dönüş yeni bir "savuruş": aynı hedef bir savuruşta bir kez kesilir.
-    // Halatla hızlı uçarken kılıç dönmese de değdiği yeri keser.
-    const a = Math.abs(this.swW);
+    // Halatla hızlı uçarken kılıç dönmese de değdiği yeri keser (kesme dalgaları simBlade'de).
     this.flying = (!!this.rope || this.y - this.gy > 0.4) && Math.hypot(this.vx, this.vy, this.vz) > 8;
-    if ((a > ACTIVE_W || this.flying) && this.hasSword) {
-      const dir = a > ACTIVE_W ? Math.sign(this.swW) : 2;
-      if (!this.episode || this.episode.dir !== dir) {
-        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir, ux: dir === 2 ? 1 : -dir, uy: 0 };
-        this.game.onSwingStart(this);
-        if (dir !== 2 && a > 6) { if (this.isPlayer) Sfx.swoosh(1); else Sfx.enemySwing(); }
-      }
-    } else if (a < ACTIVE_END) this.episode = null;
   }
 
   ride() {
@@ -256,11 +256,13 @@ export class Character {
     this.vx = h.vx; this.vz = h.vz; this.vy = 0;
     this.yaw = h.yaw; this.faceYaw = h.yaw;
     this.phase = h.phase;
+    this.low = 0; this.runK = 0;
   }
 
   // Havada: halat çeker, yerçekimi, hafif sürtünme; joystick biraz yön verir.
   moveAir(dt) {
     const env = this.game.world, r = this.rope;
+    this.low += (0 - this.low) * damp(5, dt);
     if (r) {
       const a = r.anchor();
       const dx = a.x - this.x, dy = a.y - (this.y + 1.1 * this.S), dz = a.z - this.z;
@@ -311,6 +313,7 @@ export class Character {
     const g = this.game, st = this.stickW, pl = g.player;
     if (this.grudge && (this.grudgeT <= 0 || !this.grudge.alive)) this.grudge = null;
     const tg = this.grudge || pl;
+    this.lowPref = !tg.mount;
     const dx = tg.x - this.x, dz = tg.z - this.z;
     const dist = Math.hypot(dx, dz) || 1;
     const toT = Math.atan2(dx, dz);
@@ -552,6 +555,11 @@ export class Character {
       bt = clamp((msp - 0.45 * top) / (0.35 * top), 0, 1) * clamp(1 - wa / msp, 0, 1);
     }
     this.brakeK += (bt - this.brakeK) * damp(bt > this.brakeK ? 12 : 5, dt);
+    // Duruş: dururken (ya da sadece kılıcı çevirirken) çömelir; koşarken doğrulur,
+    // dizüstü kayarken yine alçalır. Çömelmişken savuruş bacak hizasından geçer.
+    let lt = !air && !this.falling && this.lowPref && Math.hypot(this.want.x, this.want.z) < 0.5 && msp < 2.5 ? 1 : 0;
+    lt = Math.max(lt, this.brakeK);
+    this.low += (lt - this.low) * damp(lt > this.low ? 7 : 5, dt);
     this.turn(dt);
   }
 
@@ -597,7 +605,7 @@ export class Character {
     const back = vx * this.forwardX + vz * this.forwardZ < -0.3 * sp ? -1 : 1;
     const lm = this.legMask;
     // Kayarken bacaklar boşa çırpınır.
-    this.phase += (back * sp + this.slip * 5) * dt / ((lm === 3 ? STRIDE : STRIDE * 0.6) * this.S) * Math.PI * 2;
+    this.phase += (back * sp + this.slip * 5) * dt / ((lm === 3 ? STRIDE : STRIDE * 0.6) * this.gait * this.S) * Math.PI * 2;
   }
 
   // Drift tozu ve lastik gibi gıcırtı.
@@ -625,15 +633,21 @@ export class Character {
     else if (this.y > this.gy + 0.05 || this.falling) POSES.air(P, this.t);
     else if (lm === 3) {
       const runK = clamp(sp / (this.isPlayer ? 3.2 : 2), 0, 1);
-      blendPose(P, POSES.guard(_a, this.t), POSES.run(_b, this.phase), runK);
-      // Biraz sarhoş koşu: gövde adım adım yana yalpalar.
-      P.side += Math.sin(this.phase) * 0.08 * runK;
-      P.headP += Math.sin(this.phase * 2) * 0.06 * runK;
+      this.runK = runK;
+      // Dururken çömelik, kambur duruş; koşarken öne yatık koşu.
+      blendPose(_e, POSES.guard(_a, this.t), POSES.crouch(_c, this.t + this.gaitOff), this.low);
+      blendPose(P, _e, POSES.run(_b, this.phase), runK);
+      // Gevşek, sarhoş koşu: gövde adım adım yana yalpalar, öne pompalar, kafa sallanır.
+      const o = this.gaitOff;
+      // Yalpalama iki adımda bir: üst gövdenin kendi salınımına yakın, o yüzden büyür.
+      P.side += Math.sin(this.phase * 0.5 + o) * 0.16 * runK + Math.sin(this.t * 1.1 + o) * 0.05 * (1 - runK);
+      P.lean += Math.sin(this.phase * 2 + 0.6) * 0.07 * runK;
+      P.headP += Math.sin(this.phase * 2) * 0.09 * runK;
       // Drift: kayılan yöndeki bacak fren yapar, öbürü boşa çırpınır.
       if (this.slip > 0.02) blendPose(P, P, POSES.skid(_d, this.phase, this.slipDir), this.slip * 0.85);
       if (this.brakeK > 0.03) blendPose(P, P, POSES.kneel(_d), this.brakeK * 0.9 * (1 - this.slip * 0.6));
     }
-    else if (lm) { POSES.hop(P, this.phase, sp > 0.5); P.side = lm === 1 ? 0.1 : -0.1; }
+    else if (lm) { POSES.hop(P, this.phase, sp > 0.5); P.side = lm === 1 ? 0.1 : -0.1; this.runK = 0; }
     else {
       POSES.stumps(P, this.phase, sp > 0.5);
       const p = this.rag.pts;
@@ -644,9 +658,9 @@ export class Character {
     const mode = this.swingMode(), s = this.swing;
     let twist = 0, lunge = 0;
     if (this.aimCtl) {
-      // Omuzlar kılıcın yönüne burulur, hızlı savuruşta öne eğilir.
+      // Omuzlar kılıcın yönüne burulur (koşarken adımla da sallanır), hızlı savuruşta öne eğilir.
       const rel = wrapAngle(this.yaw - this.swYaw);
-      P.twist = clamp(rel * 0.75, -1.1, 1.1);
+      P.twist = clamp(rel * 0.75, -1.1, 1.1) + Math.sin(this.phase) * 0.2 * this.runK;
       P.lean += clamp(Math.abs(this.swW) / 15, 0, 1) * 0.15;
     } else if (mode) {
       const tw = (a) => s.ux * Math.sin(a) * 0.55;
@@ -672,8 +686,8 @@ export class Character {
     rag.pts[J.RHAND].pin = hold;
   }
 
-  // Kılıcın yerel kabza konumu / yönü; sonra dünya ve bıçak parçası.
-  computeSword() {
+  // Kılıcın yerel kabza konumu / hedef yönü; sonra dünya, fiziksel uç ve bıçak parçası.
+  computeSword(dt = 0) {
     const L = this.local, S = this.S;
     const nx = L[J.NECK * 3], ny = L[J.NECK * 3 + 1], nz = L[J.NECK * 3 + 2];
     const px = L[J.PELVIS * 3], py = L[J.PELVIS * 3 + 1], pz = L[J.PELVIS * 3 + 2];
@@ -691,16 +705,28 @@ export class Character {
       outG[0] = cx + outD[0] * R; outG[1] = cy + outD[1] * R; outG[2] = cz + outD[2] * R;
     };
     const d = this.ld, w = this.lw, g = this.lg;
-    if (this.aimCtl && this.hasSword && !(this.blockT > 0 && !this.isPlayer)) {
-      // Kılıç joystick yönüne bakar; hızlı dönerken göğüs hizasına iner, yavaşken yukarı çapraz durur.
+    const loose = this.aimCtl && this.hasSword;
+    if (this.aimCtl && !this.hasSword) this.episode = null;
+    if (loose && !(this.blockT > 0 && !this.isPlayer)) {
+      // Kılıç joystick yönüne bakar ama hep tam karşıya değil: dururken önde, ucu yukarıda;
+      // koşarken sağ kalçada dik taşınır, adımlarla zıplar. Savurunca iner: çömelmişken
+      // bacak hizasına (ucu yeri sıyırır), koşarken bel hizasına. Sağdan sola ve soldan
+      // sağa savuruşlar biraz farklı yükseklikten geçer. Asıl uç fiziksel (simBlade).
       const rel = wrapAngle(this.yaw - this.swYaw);
-      const spd = this.flying ? 1 : clamp(Math.abs(this.swW) / 7, 0, 1);
-      const pitch = lerp(0.45, 0.02, spd) + Math.sin(this.phase) * 0.03 + this.pitchAdj;
+      const spd = this.flying ? 1 : clamp(Math.abs(this.swW) / 6, 0, 1);
+      const lo = this.mount ? 0 : this.low, run = this.runK;
+      const restP = lerp(lerp(0.75, 1.0, run), 0.62, lo);
+      const swingP = (this.mount ? -0.35 : lerp(-0.1, -0.46, lo)) + 0.12 * Math.sign(this.swW);
+      const pitch = lerp(restP, swingP, spd) + this.pitchAdj;
       const sr = Math.sin(rel), cr = Math.cos(rel), cp = Math.cos(pitch);
       d[0] = sr * cp; d[1] = Math.sin(pitch); d[2] = cr * cp;
       w[0] = cr; w[1] = 0; w[2] = -sr;
-      const reach = (0.33 + spd * 0.07) * S;
-      g[0] = cx + sr * reach; g[1] = cy - 0.1 * S; g[2] = cz - 0.1 * S + cr * reach;
+      // Alçak savuruşta kollar öne uzanır (eğik bıçak yatayda kısalmasın).
+      const reach = (0.3 + spd * (0.12 + 0.18 * lo)) * S;
+      const bob = Math.sin(this.phase * 2) * 0.045 * S * run;
+      g[0] = cx + sr * reach + 0.07 * S * run * (1 - spd);
+      g[1] = cy - lerp(0.12, 0.3, lo) * S + bob;
+      g[2] = cz - 0.1 * S + cr * reach;
     } else if (this.blockT > 0 && !mode) {
       // Blok: gelen kılıca dik tut. Dikey savuruşa yatay, yatay savuruşa dikey.
       if (Math.abs(this.blockUy) > Math.abs(this.blockUx)) { d[0] = 1; d[1] = 0.15; d[2] = 0.2; g[0] = cx - 0.3 * S; g[1] = cy + 0.38 * S; g[2] = cz + 0.22 * S; }
@@ -737,6 +763,7 @@ export class Character {
     sw.gz = this.z + sn * g[0] + cs * g[2];
     sw.dx = -cs * d[0] + sn * d[2]; sw.dy = d[1]; sw.dz = sn * d[0] + cs * d[2];
     sw.wx = -cs * w[0] + sn * w[2]; sw.wy = w[1]; sw.wz = sn * w[0] + cs * w[2];
+    if (loose) this.simBlade(dt);
     const b0 = BLADE_START * S, b1 = (BLADE_START + this.bladeLen) * S;
     const c = this.bCur;
     c.bx = sw.gx + sw.dx * b0; c.by = sw.gy + sw.dy * b0; c.bz = sw.gz + sw.dz * b0;
@@ -746,6 +773,95 @@ export class Character {
   copyBlade() {
     const a = this.bCur, b = this.bPrev;
     b.bx = a.bx; b.by = a.by; b.bz = a.bz; b.tx = a.tx; b.ty = a.ty; b.tz = a.tz;
+  }
+
+  // Kılıç: kabzadan uca uzanan, yaylı bir sarkaç. Kaslar ucu hedef yöne (sw.d) çeker;
+  // savururken gergin (sıkı takip, biraz kamçı), dururken gevşek (yerçekimiyle sarkar,
+  // adımlarla sallanır). Uç yere giremez, sürtünür. Kesme, bıçağın açısal hızıyla ölçülür.
+  simBlade(dt) {
+    const sw = this.sw, T = this.tip;
+    const Lt = (BLADE_START + this.bladeLen) * this.S;
+    const gx = sw.gx, gy = sw.gy, gz = sw.gz;
+    if (!T.init || dt <= 0) {
+      T.x = gx + sw.dx * Lt; T.y = gy + sw.dy * Lt; T.z = gz + sw.dz * Lt;
+      T.vx = T.vy = T.vz = 0; T.gvx = T.gvy = T.gvz = 0;
+      T.gx = gx; T.gy = gy; T.gz = gz;
+      T.dx = sw.dx; T.dy = sw.dy; T.dz = sw.dz; T.w = 0; T.init = true;
+      return;
+    }
+    const gvx = (gx - T.gx) / dt, gvy = (gy - T.gy) / dt, gvz = (gz - T.gz) / dt;
+    T.gx = gx; T.gy = gy; T.gz = gz; T.gvx = gvx; T.gvy = gvy; T.gvz = gvz;
+    const effort = this.flying || this.blockT > 0 ? 1 : clamp(Math.abs(this.swW) / 4, 0, 1);
+    const k = lerp(this.bladeKRest, this.bladeKSwing, effort);
+    const c = 2 * lerp(0.35, 0.6, effort) * Math.sqrt(k);
+    const tx = gx + sw.dx * Lt, ty = gy + sw.dy * Lt, tz = gz + sw.dz * Lt;
+    T.vx += ((tx - T.x) * k - (T.vx - gvx) * c) * dt;
+    T.vy += ((ty - T.y) * k - (T.vy - gvy) * c - GRAVITY * 0.8) * dt;
+    T.vz += ((tz - T.z) * k - (T.vz - gvz) * c) * dt;
+    T.x += T.vx * dt; T.y += T.vy * dt; T.z += T.vz * dt;
+    // Boy sabit: uç kabzanın etrafındaki kürede kalır.
+    let dx = T.x - gx, dy = T.y - gy, dz = T.z - gz;
+    const l = Math.hypot(dx, dy, dz) || 1e-6;
+    dx /= l; dy /= l; dz /= l;
+    // Yere sürtme: uç zeminin altına inemez; hızlıysa kıvılcım ve cızırtı.
+    const env = this.game.world;
+    const gr = env.ground(gx + dx * Lt, gz + dz * Lt);
+    if (gr > -Infinity && gy + dy * Lt < gr + 0.03) {
+      const ny = clamp((gr + 0.03 - gy) / Lt, -1, 1), hl = Math.hypot(dx, dz);
+      const hs = Math.sqrt(Math.max(0, 1 - ny * ny));
+      if (hl > 1e-4) { dx = dx / hl * hs; dz = dz / hl * hs; } else { dx = Math.sin(this.swYaw) * hs; dz = Math.cos(this.swYaw) * hs; }
+      dy = ny;
+      if (T.vy < gvy) T.vy = gvy;
+      const ts = Math.hypot(T.vx - gvx, T.vz - gvz);
+      if (ts > 3) {
+        if (Math.random() < 0.5) this.game.fx.sparks(gx + dx * Lt, gr + 0.03, gz + dz * Lt, 2);
+        const pl = this.game.player;
+        if (this.isPlayer || Math.hypot(pl.x - this.x, pl.z - this.z) < 6) Sfx.scrape();
+      }
+    }
+    T.x = gx + dx * Lt; T.y = gy + dy * Lt; T.z = gz + dz * Lt;
+    const rvx = T.vx - gvx, rvy = T.vy - gvy, rvz = T.vz - gvz, rd = rvx * dx + rvy * dy + rvz * dz;
+    T.vx -= dx * rd; T.vy -= dy * rd; T.vz -= dz * rd;
+    // Bıçağın açısal hızı ve yatay dönüş yönü (+: yaw artıyor).
+    const ddx = dx - T.dx, ddy = dy - T.dy, ddz = dz - T.dz, dl = Math.hypot(ddx, ddy, ddz);
+    const crossY = T.dz * dx - T.dx * dz;
+    T.dx = dx; T.dy = dy; T.dz = dz; T.w = dl / dt;
+    sw.dx = dx; sw.dy = dy; sw.dz = dz;
+    // Yassı yüz yatay kalsın; dikken gövdenin sağına bak.
+    let wx = dz, wz = -dx;
+    const wl = Math.hypot(wx, wz);
+    if (wl < 0.2) { wx = -Math.cos(this.yaw); wz = Math.sin(this.yaw); } else { wx /= wl; wz /= wl; }
+    sw.wx = wx; sw.wy = 0; sw.wz = wz;
+    // Kolların IK'sı için yerel yön.
+    const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
+    this.ld[0] = -cs * dx + sn * dz; this.ld[1] = dy; this.ld[2] = sn * dx + cs * dz;
+    // Kollar savurmuyorken (kılıç sadece sallanıyorken) kesmek için sert bir kamçı gerekir.
+    const thr = Math.abs(this.swW) > 2 || this.flying ? ACTIVE_W : 7.5;
+    this.updateEpisode(T.w, thr, dl > 1e-6 && Math.abs(crossY) > 0.3 * dl ? Math.sign(crossY) : 0);
+  }
+
+  // Her yöne savuruş yeni bir "dalga": aynı hedef bir dalgada bir kez kesilir. Çapraz
+  // savuruşta yatay yön değişmedikçe dalga sürer. Halatla hızlı uçarken kılıç dönmese de keser.
+  updateEpisode(w, thr, yawDir) {
+    const ep = this.episode;
+    if ((w > thr || this.flying) && this.hasSword) {
+      let d = w > thr ? (yawDir || (ep && ep.dir !== 2 ? ep.dir : 3)) : 2;
+      if (ep && ep.dir === 3 && (d === 1 || d === -1)) { ep.dir = d; ep.ux = -d; ep.uy = 0; d = ep.dir; }
+      if (!ep || ep.dir !== d) {
+        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir: d, ux: d === 3 ? 0 : d === 2 ? 1 : -d, uy: d === 3 ? -1 : 0 };
+        this.game.onSwingStart(this);
+        if (d !== 2 && w > 6) { if (this.isPlayer) Sfx.swoosh(1); else Sfx.enemySwing(); }
+      }
+    } else if (w < ACTIVE_END) this.episode = null;
+  }
+
+  // Kılıç kılıca çarpınca bıçak geri seker (KLANG/BLOK).
+  bounceBlade() {
+    const T = this.tip;
+    if (!T.init) return;
+    T.vx = T.gvx - (T.vx - T.gvx) * 0.45;
+    T.vy = T.gvy - (T.vy - T.gvy) * 0.45;
+    T.vz = T.gvz - (T.vz - T.gvz) * 0.45;
   }
 
   // Elleri kabzaya kilitler; dirsekler IK ile aşağı-dışa bakar.

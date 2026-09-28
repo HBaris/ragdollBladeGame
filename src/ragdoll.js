@@ -13,7 +13,11 @@ export const J = {
   RHIP: 12, RKNEE: 13, RFOOT: 14,
 };
 export const JOINTS = 15;
-const JOINT_K = [0.5, 1.0, 1.0, 1.0, 0.45, 0.8, 1.0, 0.45, 0.8, 1.0, 0.8, 1.1, 1.0, 0.8, 1.1];
+// Kas sertliği ve sönüm çarpanları. Üst gövde (kafa, boyun, omuzlar) yumuşak ve az
+// sönümlü: hızlanınca, dönünce, durunca geride kalıp sallanır; kılıcı tutan eller onu
+// peşinden sürükler. Bacaklar sert kalır ki ayaklar yere bassın.
+const JOINT_K = [0.18, 0.1, 1.0, 0.12, 0.45, 0.8, 0.12, 0.45, 0.8, 1.0, 0.8, 1.1, 1.0, 0.8, 1.1];
+const JOINT_C = [0.32, 0.34, 1.0, 0.34, 1.0, 1.0, 0.34, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 const JOINT_R = [0.14, 0.07, 0.14, 0.08, 0.06, 0.06, 0.08, 0.06, 0.06, 0.09, 0.08, 0.07, 0.09, 0.08, 0.07];
 export const MIN_CUT_LEN = 0.12;
 const ITERS = 5;
@@ -45,8 +49,8 @@ export function dims(S) {
   };
 }
 
-function newPoint(x, y, z, r, k) {
-  return { x, y, z, px: x, py: y, pz: z, r, k, im: 1, pin: false, attached: true, stump: false, stumpR: 0 };
+function newPoint(x, y, z, r, k, c = 1) {
+  return { x, y, z, px: x, py: y, pz: z, r, k, c, im: 1, pin: false, attached: true, stump: false, stumpR: 0 };
 }
 
 let nextId = 1;
@@ -72,7 +76,7 @@ export class Ragdoll {
     this.cvx = 0; this.cvy = 0; this.cvz = 0;
     for (let i = 0; i < JOINTS; i++) {
       const x = world[i * 3], y = world[i * 3 + 1], z = world[i * 3 + 2];
-      this.pts.push(newPoint(x, y, z, JOINT_R[i] * S, JOINT_K[i]));
+      this.pts.push(newPoint(x, y, z, JOINT_R[i] * S, JOINT_K[i], JOINT_C[i]));
       this.tgt[i * 3] = x; this.tgt[i * 3 + 1] = y; this.tgt[i * 3 + 2] = z;
     }
     this.pts[J.HEAD].r = this.d.headR;
@@ -132,10 +136,10 @@ export class Ragdoll {
         const tx = this.tgt[i * 3], ty = this.tgt[i * 3 + 1], tz = this.tgt[i * 3 + 2];
         if (p.pin) { p.x = tx; p.y = ty; p.z = tz; continue; }
         if (m > 0) {
-          const k = k0 * p.k;
-          const ax = (tx - p.x) * k - (vx * inv - this.cvx) * c0;
-          ay += (ty - p.y) * k - (vy * inv - this.cvy) * c0;
-          const az = (tz - p.z) * k - (vz * inv - this.cvz) * c0;
+          const k = k0 * p.k, c = c0 * p.c;
+          const ax = (tx - p.x) * k - (vx * inv - this.cvx) * c;
+          ay += (ty - p.y) * k - (vy * inv - this.cvy) * c;
+          const az = (tz - p.z) * k - (vz * inv - this.cvz) * c;
           p.x += vx + ax * dt2; p.y += vy + ay * dt2; p.z += vz + az * dt2;
           continue;
         }

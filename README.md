@@ -19,9 +19,12 @@ Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürü
 
 - **Yön = kolların ve kılıcın baktığı yer.** İleri itersen kılıcı öne tutar, sağa çekersen kollar ve kılıç sağa döner. Gövde arkadan gelir.
 - **Az itersen** yerinde durup sadece kılıcı çevirir. **Çok itersen** o yöne koşar.
+- **Dururken çömelirsin.** Kambur, dizleri kırık bir duruş. Bu duruşta savuruş **bacak hizasından** geçer, kılıcın ucu yeri sıyırır (kıvılcım): rakibin bacaklarını böyle kesersin. Koşarken savuruş bel hizasındadır. Tam hızdan bırakıp dizüstü kayarken de alçaktan kesersin.
 - **Koşu hızlı ve drift eder (7 m/s).** Düz koşarken düz gidersin, ama hızlıyken yön değiştirirsen gövde hemen döner, sen savrulmaya devam edersin: bir ayak fren yapar, öbürü boşa çırpınır. Tam hızda 90° dönüşte ~6 m, geri dönüşte ~4 m kayarsın. Tam hızdayken bırakırsan hızını alamaz, dizüstü kayarsın. Yavaşken çeviksin.
 - **Kesmek için hızlı çevir.** Joystick'i bir yandan öbür yana hızlıca savurursan kılıç savrulur ve değdiği yeri keser. Yavaş dönen ya da düşmana uzatılmış kılıç kesmez, sadece iter.
-- Hızlı savuruşta bıçak göğüs hizasına iner (gövde, kollar). Daha yavaş savuruşta yukarıda kalır (boyun, kafa).
+- **Kılıç fiziksel.** Kabzadan uca yaylı bir sarkaç gibi davranır: dururken gevşek tutulur (ucu yukarıda ama sarkar, adımlarla sallanır), koşarken sağ kalçada dik taşınır, savururken kollar gerilir ve kılıç sıkı takip eder, sonunda biraz kamçılanır. Sağdan sola ve soldan sağa savuruşlar biraz farklı yükseklikten geçer; savuruşa başlarken kılıç aşağı indiği için önündekine tepeden de iner.
+- Kesme, bıçağın ne kadar hızlı döndüğüyle ölçülür. Kolların savurmadığı, sadece sallanan kılıç ancak sert bir kamçıyla keser.
+- **Gövde gevşek.** Kafa, boyun ve omuzlar yumuşak yaylarla bağlı: hızlanınca, dururken ve dönerken geride kalıp sallanır (dururken ~20° öne, 90° dönüşte ~35° yana savrulur), koşarken iki adımda bir yalpalar. Kılıcı tutan eller gövdeyi peşinden sürükler.
 - Titan seviyesinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
 - Yeniden başlat ve ses: sağ üstteki düğmeler (`R` · `M`).
 
@@ -74,9 +77,9 @@ npm run dev     # değişiklikte otomatik yeniden paketler
 
 | Dosya | İçerik |
 |---|---|
-| `src/ragdoll.js` | 3D Verlet ragdoll, kaslar, kemik kesme, kılıç çarpışma testleri |
+| `src/ragdoll.js` | 3D Verlet ragdoll, kaslar (üst gövde yumuşak: `JOINT_K` / `JOINT_C`), kemik kesme, kılıç çarpışma testleri |
 | `src/pose.js` | Duruş/koşu/hamle pozları, bacaklar için ileri kinematik, kollar için IK |
-| `src/character.js` | Oyuncu ve düşman: drift hareketi, joystick-kılıç, düşmanın sanal joystick'i, halatla uçuş, ata binme |
+| `src/character.js` | Oyuncu ve düşman: drift hareketi, duruş (çömelme), fiziksel kılıç (`simBlade`), düşmanın sanal joystick'i, halatla uçuş, ata binme |
 | `src/horse.js` | Binilebilir at: model, dörtnala animasyon, yönlendirme |
 | `src/view.js` | Jöle gövde ağları, oynak gözler, kırmızı kesitler |
 | `src/sword.js` | Kılıç modeli ve elden düşen kılıç fiziği |

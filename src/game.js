@@ -462,6 +462,7 @@ export class Game {
       c.swW = -c.swW * 0.5;
       c.aimYaw = c.swYaw;
       c.episode = null;
+      c.bounceBlade();
       if (!c.isPlayer) {
         c.aimA = c.swYaw;
         c.plan = null;

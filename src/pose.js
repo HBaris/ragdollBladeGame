@@ -17,10 +17,19 @@ export function approachPose(cur, tgt, f) { for (const k of POSE_KEYS) cur[k] +=
 export const POSES = {
   // Geniş, çömelmiş kılıç duruşu (ekran görüntülerindeki gibi).
   guard(o, t) {
-    o.lean = 0.24; o.twist = 0; o.side = 0; o.headP = -0.2;
+    o.lean = 0.34; o.twist = 0; o.side = 0; o.headP = -0.3;
     o.lP = 0.62; o.lB = 1.15; o.lS = 0.34;
     o.rP = 0.28; o.rB = 0.95; o.rS = 0.3;
     o.bob = Math.sin(t * 2.4) * 0.012;
+    return o;
+  },
+  // Gevşek, kambur, alçak duruş: dizler iyice kırık, gövde öne yatık, kafa öne uzanmış.
+  // Dururken (ya da sadece kılıcı çevirirken) bu duruşa çöker; kılıç buradan yere iner.
+  crouch(o, t) {
+    o.lean = 0.62; o.twist = 0; o.side = 0.06 * Math.sin(t * 1.3); o.headP = -0.55;
+    o.lP = 1.05; o.lB = 1.95; o.lS = 0.42;
+    o.rP = 0.8; o.rB = 1.85; o.rS = 0.38;
+    o.bob = Math.sin(t * 2.2) * 0.02;
     return o;
   },
   // Abartılı koşu: öne yatık gövde, yüksek dizler, zıplayan pelvis.

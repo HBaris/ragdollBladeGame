@@ -149,6 +149,12 @@ export const Sfx = (() => {
       tone(t, 0.22, 'sine', rand(950, 1150), 720, 0.05);
       nz(t, 0.25, 'bandpass', 2200, 1400, 2, 0.12);
     },
+    // Kılıç ucu yere sürtünce: kısa, tiz bir cızırtı.
+    scrape() {
+      if (!ok('scrape', 0.12)) return;
+      const t = ac.currentTime;
+      nz(t, 0.12, 'bandpass', 3200, 1700, 3, 0.1);
+    },
     // Gergin halat kopunca: kalın bir "tıng" ve şaklama.
     twang() {
       if (!ok('twang', 0.08)) return;
