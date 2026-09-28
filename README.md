@@ -47,7 +47,7 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Joystick atı yönlendirir; at birden dönemez, dörtnala giderken geniş döner.
   - Kılıç da joystick'i takip eder, ama sadece atın önünde ve yanlarında döner.
   - Rakipler iri ama ağır; saldırıya hazırlanmaları uzun sürer.
-  - At önüne çıkanı ezip savurur.
+  - At sırtında kılıç ~1,7 kat uzun (1,65 m bıçak): yerdeki iri rakiplere yukarıdan yetişir. At kimseyi ezmez; önüne çıkanı sadece kenara iter.
 - **Halatlı platform:** Gökyüzünde, kırmızı-beyaz halatlarla asılı 22 m'lik bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) var.
   - Halatlar direk gibidir, içinden geçilmez. Savrulan kılıç (seninki ya da rakibinki) değdiği halatı keser (**HALAT KOPTU!**). Alt parça yere kıvrılır, üst parça gökyüzüne fırlar.
   - Platform, halatların kalanlarının ağırlık merkezine göre yan yatar ve sallanarak oturur. Kenardaki halatlar ortadakilerden çok yatırır. Aynı taraftan üç halat giderse ~20°.

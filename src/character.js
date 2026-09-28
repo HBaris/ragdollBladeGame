@@ -7,6 +7,7 @@ import { Sfx } from './audio.js';
 
 export const PLAYER_SPEED = 7;
 export const BLADE_LEN = 0.95;
+export const HORSE_BLADE_LEN = 1.65; // at sırtında uzun kılıç: yerdekine yetişsin
 const A0 = -1.95, A1 = 1.7; // titan savuruş yayı (radyan)
 const STRIDE = 1.9;
 // Kılıç joystick yönüne yayla döner. Yeterince hızlı dönerken keser.
@@ -93,7 +94,8 @@ export class Character {
     this.sw = { gx: 0, gy: 0, gz: 0, dx: 0, dy: 1, dz: 0, wx: 1, wy: 0, wz: 0 };
     this.bCur = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
     this.bPrev = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
-    this.swordMesh = createSwordMesh(BLADE_LEN);
+    this.bladeLen = o.bladeLen || BLADE_LEN;
+    this.swordMesh = createSwordMesh(this.bladeLen);
     this.swordMesh.scale.setScalar(this.S);
     this.view = new CharacterView(this, o.color);
     this.computeSword(0);
@@ -735,7 +737,7 @@ export class Character {
     sw.gz = this.z + sn * g[0] + cs * g[2];
     sw.dx = -cs * d[0] + sn * d[2]; sw.dy = d[1]; sw.dz = sn * d[0] + cs * d[2];
     sw.wx = -cs * w[0] + sn * w[2]; sw.wy = w[1]; sw.wz = sn * w[0] + cs * w[2];
-    const b0 = BLADE_START * S, b1 = (BLADE_START + BLADE_LEN) * S;
+    const b0 = BLADE_START * S, b1 = (BLADE_START + this.bladeLen) * S;
     const c = this.bCur;
     c.bx = sw.gx + sw.dx * b0; c.by = sw.gy + sw.dy * b0; c.bz = sw.gz + sw.dz * b0;
     c.tx = sw.gx + sw.dx * b1; c.ty = sw.gy + sw.dy * b1; c.tz = sw.gz + sw.dz * b1;

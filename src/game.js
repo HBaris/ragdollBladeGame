@@ -3,7 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { clamp, lerp, rand, pick, damp, easeOutQuad, wrapAngle, loadNum, saveNum, segSeg, segOut, ptSeg, ptOut } from './util.js';
 import { Sfx } from './audio.js';
 import { J, MIN_CUT_LEN, sweepRagdoll, sweepBlade } from './ragdoll.js';
-import { Character, BLADE_LEN, PLAYER_SPEED } from './character.js';
+import { Character, BLADE_LEN, HORSE_BLADE_LEN, PLAYER_SPEED } from './character.js';
 import { LooseSword, placeSword, BLADE_START, disposeSwordMesh } from './sword.js';
 import { Effects } from './effects.js';
 import { World } from './world.js';
@@ -180,7 +180,7 @@ export class Game {
     this.tiltWarned = false;
     this.titanHinted = false;
     const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : -6;
-    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED });
+    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: spec.type === 'horse' ? HORSE_BLADE_LEN : BLADE_LEN });
     if (spec.type === 'horse') {
       this.horse = new Horse(this.scene, 0, 0, 0);
       this.player.mount = this.horse;
@@ -275,7 +275,6 @@ export class Game {
     if (this.horse) this.horse.update(h, this.player.alive ? this.player.stickW : null, this.world);
     for (const c of this.chars) { c.copyBlade(); c.update(h); }
     this.separate();
-    this.trample();
     const env = this.world, hp = this.lastH;
     for (const c of this.chars) {
       const rag = c.rag;
@@ -358,26 +357,6 @@ export class Game {
           if (this.world.inside(b.x + nx * push, b.z + nz * push, 0.3)) { b.x += nx * push; b.z += nz * push; }
         }
       }
-    }
-  }
-
-  // Dörtnala giden at önündekini savurur (öldürmez).
-  trample() {
-    const hs = this.horse;
-    if (!hs || hs.speed < 4) return;
-    const fx = Math.sin(hs.yaw), fz = Math.cos(hs.yaw);
-    const px = hs.x + fx * 1.1, pz = hs.z + fz * 1.1;
-    for (const e of this.enemies) {
-      if (!e.alive || e.kb > 0 || this.time < (e.trampleT || 0)) continue;
-      if (Math.hypot(e.x - px, e.z - pz) > 0.9 + 0.25 * e.S) continue;
-      e.trampleT = this.time + 1.5; // aynı düşman üst üste ezilmesin
-      this.knock(e, fx + (e.x - hs.x) * 0.2, fz + (e.z - hs.z) * 0.2, hs.speed * 0.9);
-      e.stun = 0.9; e.state = 'stagger'; e.rag.muscle = 0.15; e.flash = 0.1;
-      this.cancelSwing(e);
-      hs.speed *= 0.55;
-      this.fx.popup(e.x, 2.6 * e.S, e.z, 'EZİLDİ!', '#fff', 20, 0.8);
-      Sfx.punch();
-      this.shake(0.1);
     }
   }
 
@@ -506,7 +485,7 @@ export class Game {
     c.hasSword = false;
     const s = c.sw, h = this.h || MAX_STEP;
     const vel = { x: (c.bCur.bx - c.bPrev.bx) / h, y: (c.bCur.by - c.bPrev.by) / h, z: (c.bCur.bz - c.bPrev.bz) / h };
-    const L = (BLADE_START + BLADE_LEN) * c.S;
+    const L = (BLADE_START + c.bladeLen) * c.S;
     this.loose.push(new LooseSword(c.swordMesh, { x: s.gx, y: s.gy, z: s.gz }, { x: s.dx, y: s.dy, z: s.dz }, { x: s.wx, y: s.wy, z: s.wz }, vel, L));
     c.swordMesh = null;
   }

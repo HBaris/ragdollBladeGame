@@ -173,7 +173,7 @@ export class Hud {
         ? ['Parmağını sürükle: kılıç o yöne döner', 'Az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES']
         : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
       if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Sadece ENSESİ öldürür: 3 kez kes', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
-      if (mode === 'horse') lines = ['Sürükle: at o yöne döner, kılıç da', 'Çok it = dörtnala · hızlı çevir = KES', 'At önündekini ezer'];
+      if (mode === 'horse') lines = ['Sürükle: at o yöne döner, kılıç da', 'Çok it = dörtnala · hızlı çevir = KES', 'At sırtında kılıcın daha uzun'];
       if (mode === 'grid') lines = ['Parlayan karolardan uzak dur', 'Mavi halka ve pembe pistonlar havaya fırlatır', 'Kenardan boşluğa düşen ölür'];
       if (mode === 'roof') lines = ['Halatlar platformu tutuyor', 'Kesersen platform yan yatar, herkes kayar', 'Kenardan düşen ölür'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
