@@ -7,7 +7,9 @@ Arkadan takip eden kamera, iri oynak gözlü parlak karakterler, iki elle tutula
 ## Oynamak
 
 - **Bilgisayarda:** `index.html`'i tarayıcıda aç. Kurulum ya da sunucu gerekmez; oyun tek dosyaya paketli halde `dist/game.js` içinde.
-- **Telefonda:** GitHub'da *Settings → Pages → Build and deployment → Deploy from a branch* seçip dalı ve `/ (root)` klasörünü seç. Birkaç dakika sonra oyun `https://<kullanıcı-adın>.github.io/ragdollBladeGame/` adresinde açılır.
+- **Telefonda:** Oyunun bir web adresinden sunulması gerekir. GitHub Pages bunu yapar ama ücretsiz planda sadece **herkese açık** repolarda çalışır; bu repo gizli. İki yol var:
+  1. Repoyu herkese açık yap (*Settings → General → Danger Zone → Change visibility*), sonra *Settings → Pages → Deploy from a branch* ile oyunun bulunduğu dalı ve `/ (root)` klasörünü seç. Oyun `https://<kullanıcı-adın>.github.io/ragdollBladeGame/` adresinde açılır.
+  2. Repoyu gizli tutmak istersen `index.html` ile `dist/game.js`'i herhangi bir statik barındırmaya (Netlify Drop, Cloudflare Pages vb.) yükle.
 
 > Ses, tarayıcıların otomatik oynatma kuralı yüzünden ilk dokunuşa kadar çalmaz. Oyun ise beklemeden başlar.
 
