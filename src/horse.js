@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { clamp, lerp, approach, angApproach } from './util.js';
 
-// Binilebilir at: fizik yok, sadece kontrolcü + prosedürel dörtnala animasyon.
-// Yerel eksenler karakterlerle aynı: +z ileri, +y yukarı.
+// Binilebilir at: kontrolcü + prosedürel dörtnala animasyon. Yönetimi yayadaki gibi:
+// az itince durup döner, çok itince dörtnala koşar; hızlıyken yana tutunma azalır ve
+// sert dönüşte drift atar. Yerel eksenler karakterlerle aynı: +z ileri, +y yukarı.
 
-export const HORSE_MAX_SPEED = 11;
+export const HORSE_MAX_SPEED = 13;
+const GRIP_SLOW = 28, GRIP_FAST = 7.5, BRAKE_FAST = 7, ACC = 14;
 const HORSE_SCALE = 0.85;
 const SADDLE_Y = 1.72 * HORSE_SCALE;
 
-const sphere = new THREE.SphereGeometry(1, 22, 16);
+const sphere = new THREE.SphereGeometry(1, 14, 10);
 const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 });
 const pupilMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
 
@@ -20,13 +22,16 @@ function mesh(geo, mat, sx, sy, sz) {
 }
 
 export class Horse {
-  constructor(scene, x, z, yaw) {
+  // o.color / o.mane: gövde ve yele rengi (takımlar farklı renk at biner).
+  constructor(scene, x, z, yaw, o = {}) {
     this.x = x; this.z = z; this.yaw = yaw;
     this.speed = 0; this.vx = 0; this.vz = 0;
-    this.phase = 0;
+    this.phase = Math.random() * 6;
     this.bob = 0;
-    const body = new THREE.MeshPhysicalMaterial({ color: 0x9a5a33, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 });
-    const dark = new THREE.MeshPhysicalMaterial({ color: 0x3a2214, roughness: 0.45, clearcoat: 0.6 });
+    this.slip = 0; this.slipDir = 1;
+    this.rider = null;
+    const body = new THREE.MeshPhysicalMaterial({ color: o.color ?? 0x9a5a33, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 });
+    const dark = new THREE.MeshPhysicalMaterial({ color: o.mane ?? 0x3a2214, roughness: 0.45, clearcoat: 0.6 });
     this.mats = [body, dark];
     const g = new THREE.Group();
     const root = new THREE.Group(); // gövde sallanması için
@@ -55,6 +60,7 @@ export class Horse {
       const eye = mesh(sphere, eyeMat, 0.07, 0.07, 0.07);
       eye.position.set(sx * 0.13, 0.12, -0.06);
       const pupil = mesh(sphere, pupilMat, 0.03, 0.03, 0.03);
+      ear.castShadow = eye.castShadow = pupil.castShadow = false;
       pupil.position.set(sx * 0.19, 0.14, -0.05);
       head.add(eye, pupil);
     }
@@ -91,27 +97,54 @@ export class Horse {
     scene.add(g);
   }
 
-  // stick: dünya yönü (x, z) ve itme miktarı mag. At birden dönemez; hızlandıkça daha geniş döner.
+  // stick: dünya yönü (x, z) ve itme miktarı mag (null = binicisi yok, yavaşlayıp durur).
   update(dt, stick, env) {
-    if (stick && stick.mag > 0.18) {
-      const target = Math.atan2(stick.x, stick.z);
-      this.yaw = angApproach(this.yaw, target, lerp(3.2, 1.7, this.speed / HORSE_MAX_SPEED) * dt);
+    let wx = 0, wz = 0;
+    const mag = stick ? stick.mag : 0;
+    if (mag > 0.18) {
+      // Gövde çubuğun yönüne hızla döner (yayadaki gibi); hız vektörü ise geride kalabilir.
+      const sp0 = Math.hypot(this.vx, this.vz);
+      this.yaw = angApproach(this.yaw, Math.atan2(stick.x, stick.z), lerp(6, 4, clamp(sp0 / HORSE_MAX_SPEED, 0, 1)) * dt);
+      const run = clamp((mag - 0.4) / 0.45, 0, 1) * HORSE_MAX_SPEED;
+      wx = stick.x * run; wz = stick.z * run;
     }
-    const want = stick && stick.mag > 0.35 ? lerp(4, HORSE_MAX_SPEED, clamp((stick.mag - 0.35) / 0.6, 0, 1)) : 0;
-    this.speed = approach(this.speed, want, (want > this.speed ? 6 : 9) * dt);
-    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
-    let nx = this.x + fx * this.speed * dt, nz = this.z + fz * this.speed * dt;
+    this.drive(wx, wz, dt);
+    let nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
     if (!env.inside(nx, nz, 1.3)) {
       // Sınırda sekip içeri dön.
       nx = this.x; nz = this.z;
-      this.speed *= 0.4;
+      this.vx *= -0.3; this.vz *= -0.3;
       this.yaw = angApproach(this.yaw, Math.atan2(-this.x, -this.z), 3 * dt);
     }
-    this.vx = (nx - this.x) / dt; this.vz = (nz - this.z) / dt;
     this.x = nx; this.z = nz;
+    this.speed = Math.hypot(this.vx, this.vz);
+    // Kayma: atın baktığı yöne göre yan hız (drift görüntüsü ve toz için).
+    const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
+    const vR = -this.vx * cs + this.vz * sn;
+    this.slip += (clamp((Math.abs(vR) - 1.2) / 4, 0, 1) - this.slip) * Math.min(1, dt * 10);
+    if (Math.abs(vR) > 0.5) this.slipDir = Math.sign(vR);
     const gait = this.speed > 0.3 ? 1.3 + this.speed * 0.17 : 0;
     this.phase += dt * Math.PI * 2 * gait;
     this.bob = this.speed > 0.3 ? -Math.abs(Math.sin(this.phase)) * 0.09 * clamp(this.speed / 6, 0, 1) : 0;
+  }
+
+  // Yayadakiyle aynı drift sürüşü, at sabitleriyle: düz koşu düz, hızlıyken dönüş savurur.
+  drive(wx, wz, dt) {
+    const sp = Math.hypot(this.vx, this.vz);
+    if (sp < 0.3) {
+      const a = GRIP_SLOW * dt, ddx = wx - this.vx, ddz = wz - this.vz, dl = Math.hypot(ddx, ddz);
+      if (dl > a) { this.vx += ddx / dl * a; this.vz += ddz / dl * a; } else { this.vx = wx; this.vz = wz; }
+      return;
+    }
+    const top = HORSE_MAX_SPEED;
+    const k = Math.sqrt(clamp((sp - 0.15 * top) / (0.55 * top), 0, 1));
+    const grip = lerp(GRIP_SLOW, GRIP_FAST, k), brake = lerp(GRIP_SLOW, BRAKE_FAST, k);
+    const fx = this.vx / sp, fz = this.vz / sp;
+    const wl = wx * fx + wz * fz, wlat = -wx * fz + wz * fx;
+    const dl = clamp(wl - sp, -brake * dt, ACC * dt);
+    const dlat = clamp(wlat, -grip * dt, grip * dt);
+    this.vx += fx * dl - fz * dlat;
+    this.vz += fz * dl + fx * dlat;
   }
 
   saddle(out) {
@@ -128,6 +161,8 @@ export class Horse {
     const k = clamp(this.speed / 6, 0, 1), ph = this.phase;
     this.root.position.y = this.bob;
     this.root.rotation.x = Math.sin(ph) * 0.06 * k;
+    // Drift: gövde dönüşün içine, kayılan yöne ters yatar.
+    this.root.rotation.z = -this.slip * this.slipDir * 0.22;
     for (const l of this.legs) {
       const p = ph + l.off;
       // Pozitif x dönüşü ayağı geri götürür.

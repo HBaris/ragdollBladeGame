@@ -50,12 +50,14 @@ function boneGeo(b, S, capA, capB) {
   }
   if (capB) for (let k = 1; k <= 5; k++) { const t = (k / 5) * Math.PI / 2; pts.push(new THREE.Vector2(Math.max(0.0001, rB * Math.cos(t)), len + rB * Math.sin(t))); }
   else pts.push(new THREE.Vector2(0.0001, len));
-  g = new THREE.LatheGeometry(pts, 16);
+  g = new THREE.LatheGeometry(pts, 12);
   geoCache.set(key, g);
   return g;
 }
-const sphereGeo = new THREE.SphereGeometry(1, 22, 16);
-const smallSphereGeo = new THREE.SphereGeometry(1, 12, 10);
+const sphereGeo = new THREE.SphereGeometry(1, 18, 12);
+const smallSphereGeo = new THREE.SphereGeometry(1, 10, 8);
+const eyeGeo = new THREE.SphereGeometry(1, 14, 10);
+const limbGeo = new THREE.SphereGeometry(1, 12, 8);
 const stumpMat = new THREE.MeshStandardMaterial({ color: 0xe0001c, roughness: 0.45, emissive: 0x3a0005 });
 const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25 });
 const pupilMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 });
@@ -94,7 +96,7 @@ export class CharacterView {
     this.headGroup.add(head);
     this.pupils = [];
     for (const sx of [-1, 1]) {
-      const eye = new THREE.Mesh(sphereGeo, eyeMat);
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
       eye.scale.setScalar(0.062 * S);
       eye.position.set(sx * 0.058 * S, 0.05 * S, 0.105 * S);
       const pupil = new THREE.Mesh(smallSphereGeo, pupilMat);
@@ -114,7 +116,7 @@ export class CharacterView {
 
     this.extremities = [];
     for (const [i, r, sy] of [[J.LHAND, 0.07, 1], [J.RHAND, 0.07, 1], [J.LFOOT, 0.082, 0.75], [J.RFOOT, 0.082, 0.75]]) {
-      const m = new THREE.Mesh(sphereGeo, this.mat);
+      const m = new THREE.Mesh(limbGeo, this.mat);
       m.scale.set(r * S, r * S * sy, r * S * (sy < 1 ? 1.35 : 1));
       m.castShadow = true;
       m.userData.idx = i;
@@ -134,7 +136,7 @@ export class CharacterView {
       live.add(b);
       if (this.boneMeshes.has(b)) continue;
       const m = new THREE.Mesh(boneGeo(b, this.ch.S, !rag.pts[b.a].stump, !rag.pts[b.b].stump), this.mat);
-      m.castShadow = true;
+      m.castShadow = !this.shadowOff;
       if (b.kind === 'torso') m.scale.set(1.15, 1, 0.86);
       this.boneMeshes.set(b, m);
       this.group.add(m);
@@ -146,7 +148,7 @@ export class CharacterView {
     }
     rag.pts.forEach((p, i) => {
       if (!p.stump || this.stumpMeshes.has(i)) return;
-      const m = new THREE.Mesh(sphereGeo, stumpMat);
+      const m = new THREE.Mesh(limbGeo, stumpMat);
       m.userData.r = p.stumpR;
       this.stumpMeshes.set(i, m);
       this.group.add(m);
@@ -223,6 +225,11 @@ export class CharacterView {
 
     const f = ch.flash > 0 ? 0.55 : 0;
     this.mat.emissive.setScalar(f);
+    // Cesetler 3 sn sonra gölge düşürmez: kalabalık muharebede çizim yükü yarıya iner.
+    if (!ch.alive && !this.shadowOff && ch.game.time - ch.deathT > 3) {
+      this.shadowOff = true;
+      this.group.traverse((o) => { o.castShadow = false; });
+    }
   }
 
   addTo(scene) { scene.add(this.group); }

@@ -47,7 +47,7 @@ export function createSwordMesh(L) {
   const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.019 * S, 0.022 * S, 0.22 * S, 10), m.grip);
   const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.032 * S, 12, 8), m.guard);
   pommel.position.y = -0.125 * S;
-  for (const o of [blade, guard, grip, pommel]) { o.castShadow = true; g.add(o); }
+  for (const o of [blade, guard, grip, pommel]) { o.castShadow = o === blade; g.add(o); }
   g.userData.bladeMat = bladeMat;
   return g;
 }

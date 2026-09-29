@@ -12,6 +12,8 @@ Arkadan takip eden kamera, iri oynak gözlü parlak karakterler, iki elle tutula
   2. Repoyu gizli tutmak istersen `index.html` ile `dist/game.js`'i herhangi bir statik barındırmaya (Netlify Drop, Cloudflare Pages vb.) yükle.
 
 > Ses, tarayıcıların otomatik oynatma kuralı yüzünden ilk dokunuşa kadar çalmaz. Oyun ise beklemeden başlar.
+>
+> Telefon zorlanırsa (iki kez üst üste 3 saniye boyunca 35 fps'in altı) oyun gölgeleri kendiliğinden kapatır ("Grafik: Düşük"); ayarlardan geri açabilirsin.
 
 ## Kontroller
 
@@ -34,7 +36,14 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 
 ## Oyun
 
-**Seviye döngüsü:** Düello → Düello → **Platform** → **At** → Düello → **Boss** → **Platform** → **Titan**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Izgara / Platform / At / Titan … git" düğmeleri doğrudan oralara atlar.
+**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Platform / At / Titan … git" düğmeleri doğrudan oralara atlar.
+
+- **Muharebe:** At sırtında, kalabalık bir düşman ordusuna karşı küçük bir ordu.
+  - Düşman 14 kişiden başlar, her turda artar (en çok 24); dörtte biri atlı, kanatlardan gelir. Senin yanında 5 **mavi** müttefik var, ikisi atlı.
+  - Herkes karşı takımın en yakınına saldırır: düşmanlar sana ve müttefiklere, müttefikler düşmanlara. Atlılar hedefin yanından dörtnala geçerken savurur, geçip gidince drift'le geri döner.
+  - Kılıçlar kimin olduğuna bakmaz: düşmanlar birbirini, müttefikler birbirini, sen de yanlışlıkla müttefikini kesebilirsin (**DOST ATEŞİ!**). NPC'ler sadece saldırırken ya da sert bir kamçıda keser, koşarken dönmeleri kesmez.
+  - Bütün düşmanlar ölünce kazanırsın; müttefiklerin ölmesi kaybettirmez. Kamera yavaşça en yakın düşmana döner, "ileri" itmek seni kavgaya götürür.
+  - Uzaktaki (12 m'den ötedeki) ölümler yazı, sarsıntı ve ağır çekim üretmez; sadece seninkiler ve yakınındakiler.
 
 - **Karanlık Izgara:** Boşlukta asılı, parlak koyu karolardan ~40 m'lik bir zemin; kenarından düşen ölür. Birkaç saniyede bir:
   - **Mavi halka:** bir nokta yanıp söner, sonra oradan genişleyen bir halka karoları kaldırır ve üstündekileri havaya ve dışarı fırlatır.
@@ -48,9 +57,11 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 - **Rakipler de senin gibi oynar.** Onların da tek bir sanal joystick'i var: kılıç koştukları yöne bakar, drift ederler, kesmek için kılıcı bir yana yavaşça çekip (bunu görürsün) hızla öbür yana savururlar. Usta olanlar koşarken savurur, bazen topaç gibi döner. Uzun boylu rakip kılıcını senin göğüs hizana eğer. Elleri titrek: hedefi tam tutturamazlar (acemiler daha çok şaşırır), savuruşları da seninki gibi rastgele yükseklikten geçer.
 - **Dost ateşi:** Rakiplerin kılıcı yolundaki arkadaşını da keser (**DOST ATEŞİ!**). Kesilen bazen kin tutup ona saldırır (**HEY!**). Dikkatli olanlar arkadaşı yoldaysa bekler, ama her zaman değil.
 - **Savunma:** Kılıçlar çarpışır (**KLANG!**, **BLOK!**). Rakipler seviye ilerledikçe daha sık bloklar, geri sıçrar, karşı saldırı yapar ve seni çevreler.
+- **At kullanımı (at ve muharebe seviyeleri):** yayadaki gibi.
+  - Az itersen at durur ve yerinde döner, kılıcı çevirirsin; çok itersen o yöne dörtnala koşar (13 m/s).
+  - Hızlıyken sert dönersen at drift atar: gövdesi dönüşün içine yatar, toynaklarından toz kalkar. Tam hızda 90° dönüşte ~13 m savrulur, tam hızdan ~10 m'de durur.
+  - Kılıç joystick'i takip eder, ama sadece atın önünde ve yanlarında döner.
 - **At seviyesi:** Geniş yeşil alanda atın sırtındasın.
-  - Joystick atı yönlendirir; at birden dönemez, dörtnala giderken geniş döner.
-  - Kılıç da joystick'i takip eder, ama sadece atın önünde ve yanlarında döner.
   - Rakipler iri ama ağır; saldırıya hazırlanmaları uzun sürer.
   - At sırtında kılıç ~1,7 kat uzun (1,65 m bıçak): yerdeki iri rakiplere yukarıdan yetişir. At kimseyi ezmez; önüne çıkanı sadece kenara iter.
 - **Halatlı platform:** Gökyüzünde, kırmızı-beyaz halatlarla asılı 22 m'lik bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) var.
@@ -82,10 +93,10 @@ npm run dev     # değişiklikte otomatik yeniden paketler
 | `src/ragdoll.js` | 3D Verlet ragdoll: iki parçalı gövde (bel eklemi `J.SPINE`), kaslar (üst gövde yumuşak: `JOINT_K` / `JOINT_C` / `JOINT_KY`), kemik kesme, kılıç çarpışma testleri |
 | `src/pose.js` | Duruş/koşu/hamle pozları (`hunch`: belden kamburluk), bacaklar ve omurga için ileri kinematik, kollar için IK |
 | `src/character.js` | Oyuncu ve düşman: drift hareketi, duruş (çömelme), fiziksel kılıç (`simBlade`), düşmanın sanal joystick'i, halatla uçuş, ata binme |
-| `src/horse.js` | Binilebilir at: model, dörtnala animasyon, yönlendirme |
+| `src/horse.js` | Binilebilir at: model, dörtnala animasyon, yayadaki gibi yönetim ve drift |
 | `src/view.js` | Jöle gövde ağları, oynak gözler, kırmızı kesitler |
 | `src/sword.js` | Kılıç modeli ve elden düşen kılıç fiziği |
-| `src/game.js` | Seviye döngüsü, dövüş ve hasar kuralları, halat, kamera, ağır çekim |
+| `src/game.js` | Seviye döngüsü, takımlar (`hostilesOf` / `matesOf`), muharebe, dövüş ve hasar kuralları, halat, kamera, ağır çekim, otomatik grafik düşürme |
 | `src/world.js` | Ortamlar; halatlı platformun eğimi ve kopan halatlar; ızgaranın halka ve piston olayları. Bütün dokular kodla üretiliyor |
 | `src/effects.js` | Kan, lekeler, kıvılcım, su sıçraması |
 | `src/input.js`, `src/hud.js` | Kontroller ve arayüz |

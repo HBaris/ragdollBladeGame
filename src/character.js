@@ -37,6 +37,10 @@ export class Character {
   constructor(game, o) {
     this.game = game;
     this.isPlayer = o.team === 'player';
+    // Takım: oyuncu ve müttefikler bir taraf (side 0), düşmanlar öbür taraf (side 1).
+    this.team = o.team || 'enemy';
+    this.side = this.team === 'enemy' ? 1 : 0;
+    this.target = null; this.tgT = 0; this.passSide = 1;
     this.titan = !!o.titan;
     this.heavy = !!o.heavy;     // at seviyesinin iri ve ağır düşmanları
     this.boss = !!o.boss;       // iri, dayanıklı ama ağırkanlı
@@ -318,7 +322,8 @@ export class Character {
   thinkEnemy(dt) {
     const g = this.game, st = this.stickW, pl = g.player;
     if (this.grudge && (this.grudgeT <= 0 || !this.grudge.alive)) this.grudge = null;
-    const tg = this.grudge || pl;
+    // Hedef: karşı takımın en yakını (düşmana oyuncu ya da müttefik, müttefike düşman).
+    const tg0 = this.grudge || this.pickTarget(dt), tg = tg0 || pl;
     this.lowPref = !tg.mount;
     const dx = tg.x - this.x, dz = tg.z - this.z;
     const dist = Math.hypot(dx, dz) || 1;
@@ -336,7 +341,9 @@ export class Character {
     if (g.time < 0.8) { turnTo(toT, 3, 0.25); return; } // seviye başında kısa bir nefes
     this.timer -= dt;
     this.cool -= dt;
-    if (!pl.alive && this.state !== 'panic') this.state = 'cheer';
+    // Karşı takımda kimse kalmadıysa (düşmana göre: oyuncu öldüyse) sevinir.
+    if ((!tg0 || (this.side && !pl.alive)) && this.state !== 'panic') this.state = 'cheer';
+    if (this.mount && this.state !== 'cheer') { this.thinkRider(dt, tg, dx, dz, dist, toT, turnTo); return; }
     const sk = this.skill, reach = 1.6 * this.S;
     // Başparmak gecikmesi: hedefi insan gibi biraz geriden takip eder.
     const track = lerp(2.5, 5.5, sk) * (this.heavy ? 0.6 : 1);
@@ -350,7 +357,7 @@ export class Character {
         // Hedefin etrafına yayıl: başkalarıyla aynı yönden gelme.
         const my = Math.atan2(-dx, -dz) + clamp(this.spread(tg, dx, dz) * 0.45, -1, 1);
         const ax = tg.x + Math.sin(my) * reach - this.x, az = tg.z + Math.cos(my) * reach - this.z;
-        turnTo(Math.atan2(ax, az), 6, 0.95);
+        turnTo(Math.atan2(ax, az), 4, 0.95);
         break;
       }
       case 'fight':
@@ -378,6 +385,38 @@ export class Character {
     }
   }
 
+  // Karşı takımın en yakınını hedefler; hedef yapışkandır (başkası çok daha yakın olmadıkça
+  // değişmez), yarım saniyede bir yeniden bakar.
+  pickTarget(dt) {
+    this.tgT -= dt;
+    const cur = this.target;
+    if (cur && cur.alive && this.tgT > 0) return cur;
+    this.tgT = rand(0.4, 0.8);
+    let best = null, bd = Infinity;
+    for (const o of this.game.hostilesOf(this)) {
+      if (!o.alive) continue;
+      let d = Math.hypot(o.x - this.x, o.z - this.z);
+      if (o === cur) d *= 0.7;
+      if (d < bd) { bd = d; best = o; }
+    }
+    this.target = best;
+    return best;
+  }
+
+  // Süvari: hedefin yanından geçecek şekilde dörtnala sürer, yanından geçerken savurur;
+  // geçip gidince hedef arkada kalır, at hızlıyken geniş bir drift'le geri döner.
+  thinkRider(dt, tg, dx, dz, dist, toT, turnTo) {
+    if (this.state === 'attack') { this.runPlan(dt, toT, 5); return; }
+    if (this.state === 'stagger') { if (this.stun <= 0) { this.state = 'fight'; this.cool = rand(0.3, 0.7); } return; }
+    const off = Math.min(dist * 0.3, 1.8) * this.passSide;
+    const px = dz / dist, pz = -dx / dist;
+    turnTo(Math.atan2(tg.x + px * off - this.x, tg.z + pz * off - this.z), 5, 0.95);
+    if (this.cool <= 0 && dist < 3.3 * this.S && this.mayAttack(tg, true)) {
+      this.passSide = Math.random() < 0.5 ? -1 : 1;
+      this.startFlick(true);
+    }
+  }
+
   // Düşmanın eli titrek: hedefi tam tutturamaz, savuruşları biraz savruk (usta olan daha az).
   aimNoise() {
     const t = this.t, o = this.gaitOff;
@@ -388,7 +427,7 @@ export class Character {
   spread(tg, dx, dz) {
     const my = Math.atan2(-dx, -dz);
     let s = 0;
-    for (const o of this.game.enemies) {
+    for (const o of this.game.matesOf(this)) {
       if (o === this || o === tg || !o.alive || o.state === 'panic') continue;
       const w = wrapAngle(Math.atan2(o.x - tg.x, o.z - tg.z) - my);
       if (Math.abs(w) < 1.6) s -= Math.sign(w) * (1.6 - Math.abs(w));
@@ -401,9 +440,10 @@ export class Character {
   // Koşarken savurmadan önce hep bakar (yan yana koşan arkadaşını biçmesin).
   mayAttack(tg, careful = false) {
     const g = this.game;
-    if (careful || Math.random() < 0.6 + 0.35 * this.skill) {
+    // Kalabalık muharebede herkes önce yanına bakar (yine de kazalar olur).
+    if (careful || g.spec.type === 'battle' || Math.random() < 0.6 + 0.35 * this.skill) {
       const toT = Math.atan2(tg.x - this.x, tg.z - this.z), R = 2.2 * this.S;
-      for (const o of g.enemies) {
+      for (const o of g.matesOf(this)) {
         if (o === this || o === tg || !o.alive) continue;
         if (Math.hypot(o.x - this.x, o.z - this.z) > R) continue;
         if (Math.abs(wrapAngle(Math.atan2(o.x - this.x, o.z - this.z) - toT)) < 1.6) { this.cool = rand(0.25, 0.5); return false; }
@@ -412,12 +452,18 @@ export class Character {
     return tg !== g.player || g.takeAttackToken(this);
   }
 
+  // Yakında (r metre) kendi takımından biri var mı?
+  mateNear(r) {
+    for (const o of this.game.matesOf(this)) if (o !== this && o.alive && Math.hypot(o.x - this.x, o.z - this.z) < r * this.S) return true;
+    return false;
+  }
+
   // Joystick'le kesme: yavaşça bir yana çek (hazırlık, kesmez), sonra hızla öbür yana
   // savur. Usta düşman bazen topaç gibi döner: etrafındaki herkesi keser.
   startFlick(run) {
     const sk = this.skill;
     const side = Math.random() < 0.5 ? -1 : 1;
-    if (!run && sk > 0.2 && !this.heavy && Math.random() < 0.05 + 0.13 * sk) {
+    if (!run && sk > 0.2 && !this.heavy && Math.random() < 0.05 + 0.13 * sk && !this.mateNear(3)) {
       this.plan = { kind: 'spin', t: 0, side, base: this.aimA, dur: rand(0.7, 1.1), rec: 0.35 };
     } else {
       const th = rand(1.1, 1.5);
@@ -835,7 +881,8 @@ export class Character {
     const gvx = (gx - T.gx) / dt, gvy = (gy - T.gy) / dt, gvz = (gz - T.gz) / dt;
     T.gx = gx; T.gy = gy; T.gz = gz; T.gvx = gvx; T.gvy = gvy; T.gvz = gvz;
     const effort = this.flying || this.blockT > 0 ? 1 : clamp(Math.abs(this.swW) / 4, 0, 1);
-    const k = lerp(this.bladeKRest, this.bladeKSwing, effort);
+    // At sırtında kılıç daha sıkı tutulur (dörtnala sarsıntısı onu kamçılamasın).
+    const k = lerp(this.mount ? this.bladeKRest * 2 : this.bladeKRest, this.bladeKSwing, effort);
     const c = 2 * lerp(0.35, 0.6, effort) * Math.sqrt(k);
     const tx = gx + sw.dx * Lt, ty = gy + sw.dy * Lt, tz = gz + sw.dz * Lt;
     T.vx += ((tx - T.x) * k - (T.vx - gvx) * c) * dt;
@@ -879,7 +926,9 @@ export class Character {
     const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
     this.ld[0] = -cs * dx + sn * dz; this.ld[1] = dy; this.ld[2] = sn * dx + cs * dz;
     // Kollar savurmuyorken (kılıç sadece sallanıyorken) kesmek için sert bir kamçı gerekir.
-    const thr = Math.abs(this.swW) > 2 || this.flying ? ACTIVE_W : 7.5;
+    // Düşman/müttefik için "savurmak" sadece saldırı sırasında: koşarken dönmesi kesmez.
+    const swinging = this.isPlayer ? Math.abs(this.swW) > 2 : this.state === 'attack';
+    const thr = swinging || this.flying ? ACTIVE_W : this.isPlayer ? 7.5 : 10;
     this.updateEpisode(T.w, thr, dl > 1e-6 && Math.abs(crossY) > 0.3 * dl ? Math.sign(crossY) : 0);
   }
 
