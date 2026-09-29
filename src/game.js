@@ -3,7 +3,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { clamp, lerp, rand, pick, damp, easeOutQuad, wrapAngle, loadNum, saveNum, segSeg, segOut, ptSeg, ptOut } from './util.js';
 import { Sfx } from './audio.js';
 import { J, MIN_CUT_LEN, sweepRagdoll, sweepBlade } from './ragdoll.js';
-import { Character, BLADE_LEN, HORSE_BLADE_LEN, PLAYER_SPEED } from './character.js';
+import { Character, BLADE_LEN, HORSE_BLADE_LEN, PLAYER_SPEED, TITAN_DAGGER } from './character.js';
 import { LooseSword, placeSword, BLADE_START, disposeSwordMesh } from './sword.js';
 import { Effects } from './effects.js';
 import { World } from './world.js';
@@ -12,6 +12,7 @@ import { Hud } from './hud.js';
 import { Horse } from './horse.js';
 
 const MAX_STEP = 1 / 120;
+const STEAM_WARN = 1.3; // titanın ensesi patlamadan bu kadar önce tüter (s)
 const PLAYER_COLOR = 0xffa51f;
 const ENEMY_COLOR = 0xa51cff;
 const ALLY_COLOR = 0x4fb4ff;
@@ -208,8 +209,8 @@ export class Game {
         const k = cav ? (i % 2 ? 1 : -1) * rand(17, 26) : (m > 1 ? (i / (m - 1) - 0.5) * lineW : 0) + rand(-1, 1);
         Object.assign(o, { x: k, z: cav ? rand(22, 28) : rand(16, 24), speed: lerp(3.4, 5.4, spec.skill), bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN });
       } else if (type === 'titan') {
-        // Titan: ~12 m boyunda, yavaş; kılıcı görünmez, "kılıç" onun kollarının savuruşu.
-        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 1, speed: 2.6, skill: 0.4 + spec.skill * 0.6, color: TITAN_COLOR });
+        // Titan: ~12 m boyunda, yavaş; tek elinde (ona göre) küçük bir hançer.
+        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 1, speed: 2.6, skill: 0.4 + spec.skill * 0.6, color: TITAN_COLOR, bladeLen: TITAN_DAGGER });
       } else if (type === 'big') {
         // At seviyesi: normalden iri ama ağır düşmanlar, geniş alana dağılmış.
         const a = (i / m) * Math.PI * 2 + rand(-0.3, 0.3), r = rand(16, 28);
@@ -225,7 +226,7 @@ export class Game {
         });
       }
       const e = this.addChar(o);
-      if (e.titan) { this.titan = e; e.swordMesh.visible = false; e.neckHp = 3; e.steamT = rand(5, 7); }
+      if (e.titan) { this.titan = e; e.neckHp = 3; e.steamT = rand(5, 7); }
       if (type === 'cav') this.mountOn(e, 0x2b2522, 0x0f0c0b);
       this.enemies.push(e);
     });
@@ -483,18 +484,34 @@ export class Game {
   }
 
   // Titan ara ara ensesinden buhar püskürtür: yakınındakini halatıyla birlikte savurur.
-  // Önce buhar tüter (uyarı), sonra patlar. Enseye darbe yiyince hemen üfler.
+  // Önce ensesi tüter ve tıslar (uyarı), sonra patlar. Enseye darbe yiyince hemen üfler.
+  // Kopan uzuvlarının güdükleri de hafifçe tüter.
   titanSteam(t, h) {
-    const N = t.rag.pts[J.NECK], pl = this.player;
+    const N = t.rag.pts[J.NECK], pl = this.player, S = t.S;
+    const fx = Math.sin(t.yaw), fz = Math.cos(t.yaw);
+    const nx = N.x - fx * 0.12 * S, ny = N.y + 0.05 * S, nz = N.z - fz * 0.12 * S; // ense
     t.steamT -= h;
-    const warn = t.steamT < 0.9 && t.steamT > 0;
-    if (warn && Math.random() < h * 40) this.fx.dust(N.x + rand(-1, 1), N.y + 0.5, N.z + rand(-1, 1), rand(-2, 2), rand(-2, 2));
+    const warn = t.steamT < STEAM_WARN && t.steamT > 0;
+    if (warn) {
+      if (!t.hissing) { t.hissing = true; Sfx.hiss(); }
+      const k = 1 - t.steamT / STEAM_WARN;
+      if (Math.random() < h * (12 + 30 * k)) this.fx.steam(nx + rand(-0.4, 0.4), ny, nz + rand(-0.4, 0.4), rand(-1, 1) - fx * 1.5, rand(3, 6), rand(-1, 1) - fz * 1.5, rand(1.2, 2) * (0.7 + 0.6 * k), rand(0.7, 1.1), 0.9);
+    }
+    for (const p of t.rag.pts) {
+      if (p.stump && Math.random() < h * 5) this.fx.steam(p.x, p.y, p.z, rand(-0.4, 0.4), rand(1, 2), rand(-0.4, 0.4), rand(0.6, 1.1), rand(0.8, 1.3), 0.55);
+    }
     if (t.steamT > 0) return;
+    t.hissing = false;
     t.steamT = rand(6, 9) * lerp(1, 0.7, t.skill);
-    for (let i = 0; i < 40; i++) this.fx.dust(N.x + rand(-1.5, 1.5), N.y + rand(-1, 1.5), N.z + rand(-1.5, 1.5), rand(-9, 9), rand(-9, 9));
+    for (let i = 0; i < 24; i++) {
+      const a = rand(0, Math.PI * 2), up = rand(-0.2, 0.9), sp = rand(8, 17), c = Math.sqrt(1 - up * up);
+      this.fx.steam(nx, ny, nz, Math.cos(a) * c * sp, up * sp + 2, Math.sin(a) * c * sp, rand(2, 3.3), rand(0.8, 1.3), 1);
+    }
+    for (let i = 0; i < 20; i++) this.fx.dust(nx + rand(-1.5, 1.5), ny + rand(-1, 1.5), nz + rand(-1.5, 1.5), rand(-9, 9), rand(-9, 9));
     Sfx.splash();
+    Sfx.hiss(true);
     if (!pl.alive) return;
-    const dx = pl.x - N.x, dy = pl.y + 1 - N.y, dz = pl.z - N.z, d = Math.hypot(dx, dy, dz) || 1;
+    const dx = pl.x - nx, dy = pl.y + 1 - ny, dz = pl.z - nz, d = Math.hypot(dx, dy, dz) || 1;
     if (d > 11) return;
     const k = 16 * (1 - d / 14);
     pl.vx += dx / d * k; pl.vz += dz / d * k; pl.vy = Math.max(pl.vy, 5);
@@ -780,7 +797,7 @@ export class Game {
       o.neckCd = this.time + 0.8;
       o.neckHp--;
       o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
-      o.steamT = Math.min(o.steamT, 0.9);
+      o.steamT = Math.min(o.steamT, 1.0);
       this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 30, 0.6, 6);
       this.fx.popup(o.x, y, o.z, `ENSE! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
       this.slowmo(0.2, 0.3);

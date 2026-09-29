@@ -163,6 +163,13 @@ export const Sfx = (() => {
       tone(t, 0.35, 'sawtooth', 340, 120, 0.05);
       nz(t, 0.07, 'highpass', 2500, 6000, 1, 0.35);
     },
+    // Buhar: uyarıda uzun ince tıslama, patlamada kalın bir fış.
+    hiss(blast) {
+      if (!ok(blast ? 'hissB' : 'hiss', 0.3)) return;
+      const t = ac.currentTime;
+      if (blast) { nz(t, 0.9, 'lowpass', 3000, 400, 0.7, 0.4); tone(t, 0.4, 'sine', 90, 40, 0.3); }
+      else nz(t, 1.2, 'highpass', 5000, 3000, 0.8, 0.09);
+    },
     heal() {
       if (!ok('heal', 0.2)) return;
       const t = ac.currentTime;

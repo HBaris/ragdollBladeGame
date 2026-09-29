@@ -20,9 +20,13 @@ const MAX_ARM_LEAD = 2.0;      // kılıç gövdenin en fazla bu kadar önüne g
 const GRIP_SLOW = 36, GRIP_FAST = 3.2, BRAKE_FAST = 4.2;
 const SLIDE_MIN = 0.07;        // bu eğimin altında zemin kaydırmaz
 
-// Titan yerdeki oyuncuya tepeden/çapraz vurur, havadakine yatay savurur.
-const TITAN_LOW = [[0, -1], [0.7, -0.7], [-0.7, -0.7]];
-const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1]];
+// Titan yerdeki oyuncuya tepeden/çapraz vurur, havadakine yatay savurur. (ux, uy): savuruş
+// düzleminin hedefe bakışa göre eğimi (x sağ, y yukarı).
+const TITAN_LOW = [[0, -1], [0.7, -0.7], [-0.7, -0.7], [1, -0.25], [-1, -0.25]];
+const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1], [1, 0], [-1, 0]];
+export const TITAN_DAGGER = 0.42; // titanın hançeri (bıçak boyu, ölçeksiz)
+const _F = [0, 0, 1], _U = [1, 0, 0], _PV = [0, 0, 0];
+const TITAN_R = [[J.RSH, J.RELB, J.RHAND, 0, 0.8]], TITAN_L = [[J.LSH, J.LELB, J.LHAND, 0, -0.8]];
 const _sad = { x: 0, y: 0, z: 0 };
 // Her savuruşun rastgele yüksekliği (radyan, eksi = aşağı): çoğu alçaktan geçer.
 const SWING_BIAS = [-0.45, -0.35, -0.2, -0.1, 0, 0.1, 0.25];
@@ -115,7 +119,7 @@ export class Character {
     this.tip = { init: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, gx: 0, gy: 0, gz: 0, gvx: 0, gvy: 0, gvz: 0, dx: 0, dy: 1, dz: 0, w: 0 };
     this.bladeKRest = this.isPlayer ? 70 : this.heavy ? 50 : 60;
     this.bladeKSwing = this.isPlayer ? 420 : this.heavy ? 200 : this.boss ? 260 : lerp(300, 420, this.skill);
-    this.swordMesh = createSwordMesh(this.bladeLen);
+    this.swordMesh = createSwordMesh(this.bladeLen, this.titan ? 0.1 : 0.07);
     this.swordMesh.scale.setScalar(this.S);
     this.view = new CharacterView(this, o.color);
     this.computeSword(0);
@@ -208,9 +212,25 @@ export class Character {
       dur: fast ? 0.2 : 0.5,
       rec: fast ? 0.18 : lerp(0.55, 0.35, sk),
       hits: new Set(), rolled: new Set(), kills: 0,
+      tx: 0, ty: 0, tz: 0, high: false,
     };
+    if (this.titan) this.aimTitan();
     this.game.onSwingStart(this);
   }
+
+  // Titan: savuruşun geçeceği nokta (dünya), oyuncunun o an olacağı yer. Hazırlanırken
+  // her karede güncellenir, savuruş başlayınca donar: son anda yön değiştiren kurtulur.
+  aimTitan() {
+    const s = this.swing, pl = this.game.player;
+    const left = Math.max(0, s.wind - s.t) + s.dur * 0.3;
+    const k = lerp(0.35, 0.85, this.skill);
+    s.tx = pl.x + (pl.vx + pl.slideX) * left * k;
+    s.ty = pl.y + 0.75 + pl.vy * left * k * 0.5;
+    s.tz = pl.z + (pl.vz + pl.slideZ) * left * k;
+  }
+
+  // Titan hançeri tek elle tutar: sağ el koparsa sola geçer.
+  get gripR() { return this.rag.pts[J.RHAND].attached; }
 
   swingMode() {
     const s = this.swing;
@@ -523,9 +543,10 @@ export class Character {
         this.want.z = dz / dist * clamp((dist - engage) * 3, -2, this.speed);
         const high = pl.y > 3;
         // Havadakine (ensesine gelene) daha uzaktan da el sallar.
-        if (this.hasSword && this.cool <= 0 && dist < engage + 0.35 + this.skill * 0.5 + (high ? 4 : 0) && g.takeAttackToken(this)) {
+        if (this.hasSword && this.cool <= 0 && dist < engage + 1 + this.skill * 0.8 + (high ? 4 : 0) && g.takeAttackToken(this)) {
           const [ux, uy] = pick(high ? TITAN_HIGH : TITAN_LOW);
           this.startSwing(ux, uy, false);
+          this.swing.high = high;
           // Havadaki (halatla gelen) oyuncuya daha çabuk el sallar.
           if (high) this.swing.wind *= 0.4;
           this.state = 'attack';
@@ -732,7 +753,9 @@ export class Character {
       if (mode === 1) { const e = easeInOut(s.t / s.wind); twist = tw(s.a0) * e; lunge = e * 0.5; }
       else if (mode === 2) { const e = easeOutQuad((s.t - s.wind) / s.dur); twist = tw(lerp(s.a0, s.a1, e)); lunge = 1; }
       else { const e = easeInOut((s.t - s.wind - s.dur) / s.rec); twist = tw(s.a1) * (1 - e); lunge = 1 - e; }
-      blendPose(P, P, POSES.lunge(_c), lunge * (sp > 1.5 ? 0.4 : 1));
+      // Titan yerdekine hançerle yetişmek için çömelip öne abanır.
+      if (this.titan && !s.high) { blendPose(P, P, POSES.crouch(_c, this.t), lunge); P.lean += 0.2 * lunge; P.hunch += 0.25 * lunge; }
+      else blendPose(P, P, POSES.lunge(_c), lunge * (sp > 1.5 ? 0.4 : 1));
       P.twist = twist;
       if (s.uy < -0.5 && mode === 2) P.lean += 0.25;
     }
@@ -751,9 +774,9 @@ export class Character {
     else rag.setVel(this.vx, this.vy, this.vz);
     pp.x = W[pi]; pp.y = W[pi + 1]; pp.z = W[pi + 2]; pp.ok = true;
     rag.tgt.set(W);
-    const hold = this.hasSword;
-    rag.pts[J.LHAND].pin = hold;
-    rag.pts[J.RHAND].pin = hold;
+    const hold = this.hasSword, one = this.titan;
+    rag.pts[J.LHAND].pin = hold && (!one || !this.gripR);
+    rag.pts[J.RHAND].pin = hold && (!one || this.gripR);
   }
 
   // Omurgasız jöle: eklem hedefleri hiç durmadan hafifçe kayar; hiçbir duruş net kalmaz.
@@ -779,12 +802,19 @@ export class Character {
     gd[0] /= gl; gd[1] /= gl; gd[2] /= gl;
     const gg = [cx + 0.14 * S, cy - 0.16 * S, cz + 0.26 * S];
     const s = this.swing, mode = this.swingMode();
-    const R = 0.3 * S;
+    // Titan: hançer tutan omuz etrafında, hedefe bakan düzlemde yay (F: hedefe, U: savuruş).
+    let Rg = 0.3 * S;
+    if (mode) {
+      if (mode === 1) this.aimTitan();
+      Rg = this.titanBasis(s);
+    }
     const arc = (a, outD, outW, outG) => {
       const sa = Math.sin(a), ca = Math.cos(a);
-      outD[0] = s.ux * sa; outD[1] = s.uy * sa; outD[2] = ca;
-      outW[0] = s.ux * ca; outW[1] = s.uy * ca; outW[2] = -sa;
-      outG[0] = cx + outD[0] * R; outG[1] = cy + outD[1] * R; outG[2] = cz + outD[2] * R;
+      for (let i = 0; i < 3; i++) {
+        outD[i] = _F[i] * ca + _U[i] * sa;
+        outW[i] = _U[i] * ca - _F[i] * sa;
+        outG[i] = _PV[i] + outD[i] * Rg;
+      }
     };
     const d = this.ld, w = this.lw, g = this.lg;
     const loose = this.aimCtl && this.hasSword;
@@ -956,12 +986,38 @@ export class Character {
     T.vz = T.gvz - (T.vz - T.gvz) * 0.45;
   }
 
+  // Titan savuruşunun yerel tabanı: omuzdan hedefe F, ona dik savuruş yönü U. Bıçağın
+  // ortası hedeften geçsin diye kolun ne kadar uzanacağını (omuz-kabza) döndürür.
+  titanBasis(s) {
+    const L = this.local, S = this.S, iS = (this.gripR ? J.RSH : J.LSH) * 3;
+    _PV[0] = L[iS]; _PV[1] = L[iS + 1]; _PV[2] = L[iS + 2];
+    const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
+    const wx = s.tx - this.x, wz = s.tz - this.z;
+    let fx = -cs * wx + sn * wz - _PV[0], fy = s.ty - this.y - _PV[1], fz = sn * wx + cs * wz - _PV[2];
+    const D = Math.hypot(fx, fy, fz) || 1;
+    fx /= D; fy /= D; fz /= D;
+    // Omuzdan pek arkaya uzanamaz (ensesindekine tepeden ya da yandan vurur).
+    if (fz < -0.3) { const k = Math.sqrt(1 - 0.09) / (Math.hypot(fx, fy) || 1); fx *= k; fy *= k; fz = -0.3; }
+    _F[0] = fx; _F[1] = fy; _F[2] = fz;
+    let rx = fz, rz = -fx;
+    let rl = Math.hypot(rx, rz);
+    if (rl < 0.2) { rx = 1; rz = 0; rl = 1; } // tam tepesinde
+    rx /= rl; rz /= rl;
+    // U = ux * sağ + uy * yukarı', yukarı' = F x sağ
+    const upx = fy * rz, upy = fz * rx - fx * rz, upz = -fy * rx;
+    _U[0] = s.ux * rx + s.uy * upx; _U[1] = s.uy * upy; _U[2] = s.ux * rz + s.uy * upz;
+    const ul = Math.hypot(_U[0], _U[1], _U[2]) || 1;
+    _U[0] /= ul; _U[1] /= ul; _U[2] /= ul;
+    const b0 = BLADE_START * S, b1 = (BLADE_START + this.bladeLen) * S;
+    return clamp(D - lerp(b0, b1, 0.6), 0.2 * S, 0.5 * S);
+  }
+
   // Elleri kabzaya kilitler; dirsekler IK ile aşağı-dışa bakar.
   applyArms() {
     if (!this.hasSword) return;
     const L = this.local, S = this.S, d = this.d;
     const g = this.lg, dir = this.ld;
-    const arms = [
+    const arms = this.titan ? (this.gripR ? TITAN_R : TITAN_L) : [
       [J.RSH, J.RELB, J.RHAND, 0.05 * S, 0.8],
       [J.LSH, J.LELB, J.LHAND, -0.065 * S, -0.8],
     ];

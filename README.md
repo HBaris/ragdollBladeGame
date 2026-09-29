@@ -73,8 +73,9 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - **Kısa dokunuş halat atar:** boşluğa dokunursan halat ekran dışına, önde ve yukarıda bir yere takılır ve salınarak ilerlersin. Titana dokunursan halat onun o noktasına takılır ve ona doğru uçarsın.
   - Hızla uçarken kılıç titanın değdiği yerini keser.
   - **Sadece ensesi öldürür.** Kolu, bacağı kopsa da savaşır (bacaksızsa sürünür); gövdesi kesilemeyecek kadar kalın. Ense ancak **üçüncü** darbede kopar (aynı dalışta iki kez sayılmaz).
-  - **Buhar:** Ensesi tüterse uzaklaş; birkaç saniyede bir (ve enseye her darbe yiyince hemen) buhar püskürtür, yakınındakini halatıyla birlikte savurur.
-  - Havadakine hızlı el sallar; darbesi gövdene gelse bile bir uzvunu koparır.
+  - **Buhar:** Ensesinin arkasından beyaz buhar tütüp tıslamaya başlarsa uzaklaş: ~1.3 sn sonra patlar (enseye her darbe yiyince hemen), yakınındakini halatıyla birlikte savurur. Kopan uzuvlarının güdükleri de tüter.
+  - **Hançer:** Tek elinde (ona göre) küçük bir hançer var; sağ eli koparsa sola geçer, iki eli de giderse silahsız kalır. Her savuruşu **oyuncuya nişan alır**: hazırlanırken senin gideceğin yeri tahmin eder, savuruş başlayınca yönü donar; son anda yön değiştirirsen kurtulursun. Yerdekine çömelip tepeden ya da çapraz vurur, havadakine (ensesindekine) hızlı yatay savurur.
+  - Darbesi gövdene gelse bile bir uzvunu koparır; kafana gelirse ölürsün.
 - **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
 - **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
 

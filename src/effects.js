@@ -14,6 +14,81 @@ function dotTexture() {
   return t;
 }
 
+// Çizgi film bulutu (buhar için): dolu gövde, yumuşak kenar, altı gri gölgeli. Açık gökte
+// ve çimde de seçilsin diye yumuşak beyaz leke yerine hacimli görünür.
+function puffTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const sh = g.createLinearGradient(0, 8, 0, 60);
+  sh.addColorStop(0, '#ffffff');
+  sh.addColorStop(0.5, '#f1efec');
+  sh.addColorStop(1, '#a9a4a0');
+  g.fillStyle = sh;
+  g.fillRect(0, 0, 64, 64);
+  const m = g.createRadialGradient(32, 32, 0, 32, 32, 31);
+  m.addColorStop(0, 'rgba(0,0,0,1)');
+  m.addColorStop(0.6, 'rgba(0,0,0,1)');
+  m.addColorStop(0.85, 'rgba(0,0,0,0.55)');
+  m.addColorStop(1, 'rgba(0,0,0,0)');
+  g.globalCompositeOperation = 'destination-in';
+  g.fillStyle = m;
+  g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+
+// Titan buharı: metrelerce büyüyüp yükselen, sönen bulutlar (küçük noktalar uzaktan görünmüyor).
+class SteamPool {
+  constructor(scene, max) {
+    const tex = puffTexture();
+    this.free = [];
+    this.live = [];
+    for (let i = 0; i < max; i++) {
+      const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 }));
+      m.visible = false;
+      m.renderOrder = 2;
+      scene.add(m);
+      this.free.push({ m, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, s: 1, a: 1, age: 0, life: 1 });
+    }
+  }
+
+  add(x, y, z, vx, vy, vz, s, life, a) {
+    const p = this.free.pop() || this.live.shift();
+    if (!p) return;
+    Object.assign(p, { x, y, z, vx, vy, vz, s, life, a, age: 0 });
+    p.m.visible = true;
+    this.live.push(p);
+  }
+
+  update(dt) {
+    const L = this.live, f = Math.exp(-2.4 * dt);
+    let k = 0;
+    for (let i = 0; i < L.length; i++) {
+      const p = L[i];
+      p.age += dt;
+      if (p.age >= p.life) { p.m.visible = false; this.free.push(p); continue; }
+      p.vx *= f; p.vz *= f; p.vy = p.vy * f + 2.2 * dt; // sıcak: yavaşlar ve yükselir
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      L[k++] = p;
+    }
+    L.length = k;
+  }
+
+  flush() {
+    for (const p of this.live) {
+      const u = p.age / p.life;
+      p.m.position.set(p.x, p.y, p.z);
+      p.m.scale.setScalar(p.s * (1 + 1.5 * Math.sqrt(u)));
+      p.m.material.opacity = p.a * Math.min(1, p.age / 0.08) * (1 - u * u);
+    }
+  }
+
+  clear() {
+    for (const p of this.live) { p.m.visible = false; this.free.push(p); }
+    this.live.length = 0;
+  }
+}
+
 class PointPool {
   constructor(scene, max, mat) {
     this.max = max;
@@ -51,6 +126,7 @@ export class Effects {
     this.blood = new PointPool(scene, 2600, new THREE.PointsMaterial({ color: 0xc4001a, size: 0.05, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
     this.spark = new PointPool(scene, 400, new THREE.PointsMaterial({ color: 0xfff1a8, size: 0.06, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
     this.water = new PointPool(scene, 600, new THREE.PointsMaterial({ color: 0xffffff, size: 0.08, map: tex, alphaTest: 0.5, sizeAttenuation: true }));
+    this.steamPool = new SteamPool(scene, 56);
     this.dustPool = new PointPool(scene, 500, new THREE.PointsMaterial({ color: 0xe9e2d4, size: 0.11, map: tex, alphaTest: 0.5, sizeAttenuation: true, transparent: true, opacity: 0.75 }));
 
     this.maxDecals = 700;
@@ -76,6 +152,7 @@ export class Effects {
     this.spark.list.length = 0;
     this.water.list.length = 0;
     this.dustPool.list.length = 0;
+    this.steamPool.clear();
     this.bleeders.length = 0;
     this.popups.length = 0;
     this.decals.count = 0;
@@ -107,6 +184,11 @@ export class Effects {
     for (let i = 0; i < 2; i++) {
       this.dustPool.add({ x: x + rand(-0.08, 0.08), y: y + 0.03, z: z + rand(-0.08, 0.08), vx: vx + rand(-0.5, 0.5), vy: rand(0.3, 1.1), vz: vz + rand(-0.5, 0.5), life: rand(0.3, 0.6) });
     }
+  }
+
+  // Buhar bulutu: s başlangıç çapı (m), ömrünce 2.5 katına büyür.
+  steam(x, y, z, vx, vy, vz, s, life, a = 0.85) {
+    this.steamPool.add(x, y, z, vx, vy, vz, s, life, a);
   }
 
   // Lekeler yan yatabilen zemine (platform) yapışsın diye onun altına taşınabilir.
@@ -202,6 +284,7 @@ export class Effects {
       L.length = k;
     }
 
+    this.steamPool.update(dt);
     for (const p of this.popups) { p.age += dt; p.y += 0.5 * dt; }
     this.popups = this.popups.filter((p) => p.age < p.life);
   }
@@ -211,5 +294,6 @@ export class Effects {
     this.spark.flush();
     this.water.flush();
     this.dustPool.flush();
+    this.steamPool.flush();
   }
 }

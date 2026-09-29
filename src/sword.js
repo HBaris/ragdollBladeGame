@@ -36,12 +36,12 @@ function mats() {
 }
 
 // Ölçeksiz kurulur; iri karakterler için mesh.scale ayarlanır.
-export function createSwordMesh(L) {
+export function createSwordMesh(L, w = 0.07) {
   const S = 1;
   const m = mats();
   const g = new THREE.Group();
   const bladeMat = new THREE.MeshStandardMaterial({ color: 0xe3e8ee, metalness: 0.95, roughness: 0.2 });
-  const blade = new THREE.Mesh(bladeGeometry(L, 0.07 * S, 0.018 * S), bladeMat);
+  const blade = new THREE.Mesh(bladeGeometry(L, w * S, 0.018 * S * w / 0.07), bladeMat);
   const guard = new THREE.Mesh(new THREE.BoxGeometry(0.24 * S, 0.035 * S, 0.05 * S), m.guard);
   guard.position.y = 0.12 * S;
   const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.019 * S, 0.022 * S, 0.22 * S, 10), m.grip);
