@@ -29,14 +29,14 @@ Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürü
 - Kesme, bıçağın ne kadar hızlı döndüğüyle ölçülür. Kolların savurmadığı, sadece sallanan kılıç ancak sert bir kamçıyla keser.
 - **Omurgasız, jöle gibi.** Kalça çivili değil, güçlü bir yayla kontrolcüyü izler: vurulunca, zıplayınca bütün gövde sarsılır. Bacaklar gevşek, dizler hiç tam açılmaz, bacaklar yana açık ve adımda içe-dışa sallanır. Kafa, boyun, bel, omuzlar ve dizler hiç durmadan hafifçe titrer; hiçbir duruş net kalmaz.
 - **Gövde gevşek, omurga bükülür.** Gövde iki parça: karın ve göğüs, arada her yöne bükülüp burulan bir bel eklemi. Dururken sırt ~40° kamburdur; koşarken göğüs her adımda belden öne pompalar (bükülme 12–40°), durunca ve dönünce belden katlanıp savrulur. Kafa, boyun ve omuzlar öne/yana yumuşak yaylarla bağlı; dikeyde sıkı ki koşunun zıplaması onu belden kırmasın. Kılıcı tutan eller gövdeyi peşinden sürükler.
-- Titan seviyesinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
+- Titan seviyelerinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
 - Yeniden başlat ve ses: sağ üstteki düğmeler (`R` · `M`).
 
 Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick yönleri ayağının altından kaymasın.
 
 ## Oyun
 
-**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Platform / At / Titan … git" düğmeleri doğrudan oralara atlar.
+**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan** → **Titan Muharebesi**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Platform / At / Titan / Titan muharebesi … git" düğmeleri doğrudan oralara atlar.
 
 - **Muharebe:** At sırtında, kalabalık bir düşman ordusuna karşı küçük bir ordu.
   - Düşman 14 kişiden başlar, her turda artar (en çok 24); dörtte biri atlı, kanatlardan gelir. Senin yanında 5 **mavi** müttefik var, ikisi atlı.
@@ -69,13 +69,19 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Platform, halatların kalanlarının ağırlık merkezine göre yan yatar ve sallanarak oturur. Kenardaki halatlar ortadakilerden çok yatırır. Aynı taraftan üç halat giderse ~20°.
   - Eğimde herkes aşağı kayar; koşarak karşı koyabilirsin. Duvar yavaş kaymayı durdurur, ama hızlı çarpan (darbe + kayma) duvarın üstünden devrilip düşer ve ölür.
 - **Titan seviyesi:** Uzakta, ~12 m boyunda, hızlı ve saldırgan bir titan var.
+  - **Çift kılıç:** Titanlara karşı iki elinde birer kılıç var. Sağdaki joystick'le savrulan asıl kılıç, soldaki onun aynadaki eşi: öne V açarlar, savuruşta makas gibi kesişirler, topaç gibi dönünce ikisi de döner. Bir elin koparsa o elin kılıcı düşer, kalan elle tek kılıçla devam edersin.
   - Sürüklemek her zamanki gibi koşturur ve kılıcı çevirir.
   - **Kısa dokunuş halat atar:** boşluğa dokunursan halat ekran dışına, önde ve yukarıda bir yere takılır ve salınarak ilerlersin. Titana dokunursan halat onun o noktasına takılır ve ona doğru uçarsın.
   - Hızla uçarken kılıç titanın değdiği yerini keser.
-  - **Sadece ensesi öldürür.** Kolu, bacağı kopsa da savaşır (bacaksızsa sürünür); gövdesi kesilemeyecek kadar kalın. Ense ancak **üçüncü** darbede kopar (aynı dalışta iki kez sayılmaz).
+  - **Sadece ensesi öldürür.** Kolu, bacağı kopsa da savaşır (bacaksızsa sürünür); gövdesi kesilemeyecek kadar kalın. Ense ancak **üçüncü** darbede kopar. Her bıçak aynı dalışta bir kez sayılır: iki bıçak birden enseye girerse o dalış iki darbe sayar, yani temiz iki dalış titanı düşürür.
   - **Buhar:** Ensesinin arkasından beyaz buhar tütüp tıslamaya başlarsa uzaklaş: ~1.3 sn sonra patlar (enseye her darbe yiyince hemen), yakınındakini halatıyla birlikte savurur. Kopan uzuvlarının güdükleri de tüter.
   - **Hançer:** Tek elinde (ona göre) küçük bir hançer var; sağ eli koparsa sola geçer, iki eli de giderse silahsız kalır. Her savuruşu **oyuncuya nişan alır**: hazırlanırken senin gideceğin yeri tahmin eder, savuruş başlayınca yönü donar; son anda yön değiştirirsen kurtulursun. Yerdekine çömelip tepeden ya da çapraz vurur, havadakine (ensesindekine) hızlı yatay savurur.
-  - Darbesi gövdene gelse bile bir uzvunu koparır; kafana gelirse ölürsün.
+  - Darbesi nereye gelirse gelsin bir uzvunu koparır (kafana gelse de kafan uçmaz, bir uzvun gider); iki kolun giderse ölürsün.
+- **Titan muharebesi:** Yanında 16 kişilik mavi bir piyade birliği, karşında geniş bir hatta gelen **üç titan**. Hepsini ensesinden düşürünce kazanırsın.
+  - Müttefikler titanların ayak dibine koşup bacaklarına savurur; küçük kılıçları çoğunlukla sıyırır ama arada bir bacak ya da kol koparır (bacaksız titan sürünür, ensesi alçalır). Ense senin işin.
+  - Titanlar en çok sana sinirlidir ama dibindekileri de biçer; hançer birine saplanınca o savuruş biter. Hançer inmeden önce müttefikler (becerisine göre) geri sıçrar, buhar onları da savurur.
+  - Kalabalıkta dost ateşi öldürmez, sadece iter ("HEY!"). Birlik azaldıkça arkadan üçer kişilik **takviye** gelir (toplam 12).
+  - Kamera en yakın titana kilitlenir; o düşünce sıradakine geçer. Halat attığında dokunduğun titana uçarsın.
 - **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
 - **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
 

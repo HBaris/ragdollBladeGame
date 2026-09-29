@@ -21,7 +21,8 @@ const TITAN_COLOR = 0xb45cf0;
 const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara' };
 // Düello ortamları: her tek seviye karanlık ızgara, arada diğerleri sırayla.
 const DUEL_ENVS = ['meadow', 'ice', 'dojo'];
-const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan'];
+const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan', 'titanwar'];
+const NPC_TITAN_CUT = 0.12; // müttefikin darbesi titanın uzvunu bu olasılıkla koparır (çoğu sıyırır)
 const DEATH_QUIPS = [
   'Ragdoll fiziği 1 — Sen 0',
   'Parçalarını toplamak biraz sürecek.',
@@ -29,8 +30,8 @@ const DEATH_QUIPS = [
   'Hiç değilse güzel uçtun.',
 ];
 
-// Seviye tasarımı: düello, düello, platform, muharebe, düello, boss, at, platform, titan
-// döngüsü; zorluk yavaşça artar.
+// Seviye tasarımı: düello, düello, platform, muharebe, düello, boss, at, platform, titan,
+// titan muharebesi döngüsü; zorluk yavaşça artar.
 export function levelSpec(n) {
   const type = LEVEL_CYCLE[(n - 1) % LEVEL_CYCLE.length];
   const round = Math.floor((n - 1) / LEVEL_CYCLE.length);
@@ -39,6 +40,8 @@ export function levelSpec(n) {
   if (type === 'roof') return { type, env: 'roof', big: false, skill, boss: false, enemies: new Array(Math.min(4, 2 + round)).fill('normal') };
   if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
   if (type === 'titan') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan'] };
+  // Titan muharebesi: yanında kalabalık bir piyade birliği, karşında üç titan.
+  if (type === 'titanwar') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan', 'titan', 'titan'], allies: new Array(16).fill('foot') };
   if (type === 'battle') {
     // Muharebe: at sırtında, kalabalık bir düşman ordusuna karşı birkaç müttefikle. Düşmanın
     // dörtte biri, müttefiklerin ikisi atlı.
@@ -107,6 +110,7 @@ export class Game {
     this.lastAttackT = -9;
     this._bb = {};
     this.titan = null;
+    this.titans = [];
     this.hookSide = 1;
     this.raycaster = new THREE.Raycaster();
     this.ropeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.6 }));
@@ -162,11 +166,13 @@ export class Game {
       c.rag.removed = true;
       c.dispose(this.scene);
       if (c.swordMesh) { this.scene.remove(c.swordMesh); disposeSwordMesh(c.swordMesh); }
+      if (c.sword2Mesh) { this.scene.remove(c.sword2Mesh); disposeSwordMesh(c.sword2Mesh); }
     }
     for (const l of this.loose) { this.scene.remove(l.mesh); disposeSwordMesh(l.mesh); }
     for (const h of this.horses) h.dispose(this.scene);
     this.horses = [];
     this.titan = null;
+    this.titans = [];
     this.ropeMesh.visible = false;
     this.chars = [];
     this.enemies = [];
@@ -180,6 +186,7 @@ export class Game {
     const c = new Character(this, o);
     c.view.addTo(this.scene);
     this.scene.add(c.swordMesh);
+    if (c.sword2Mesh) this.scene.add(c.sword2Mesh);
     this.chars.push(c);
     return c;
   }
@@ -195,8 +202,10 @@ export class Game {
     this.tiltWarned = false;
     this.titanHinted = false;
     const mounted = spec.type === 'horse' || spec.type === 'battle';
-    const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : spec.type === 'battle' ? -22 : -6;
-    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: mounted ? HORSE_BLADE_LEN : BLADE_LEN });
+    // Titanlara karşı: halat ve çift kılıç.
+    this.titanMode = spec.type === 'titan' || spec.type === 'titanwar';
+    const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : spec.type === 'battle' || spec.type === 'titanwar' ? -22 : -6;
+    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: mounted ? HORSE_BLADE_LEN : BLADE_LEN, dual: this.titanMode });
     if (mounted) this.mountOn(this.player, 0x9a5a33, 0x3a2214);
     this.goodGuys = [this.player];
     const m = spec.enemies.length;
@@ -209,8 +218,10 @@ export class Game {
         const k = cav ? (i % 2 ? 1 : -1) * rand(17, 26) : (m > 1 ? (i / (m - 1) - 0.5) * lineW : 0) + rand(-1, 1);
         Object.assign(o, { x: k, z: cav ? rand(22, 28) : rand(16, 24), speed: lerp(3.4, 5.4, spec.skill), bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN });
       } else if (type === 'titan') {
-        // Titan: ~12 m boyunda, yavaş; tek elinde (ona göre) küçük bir hançer.
-        Object.assign(o, { x: 0, z: 28, scale: 7, titan: true, hp: 1, speed: 2.6, skill: 0.4 + spec.skill * 0.6, color: TITAN_COLOR, bladeLen: TITAN_DAGGER });
+        // Titan: ~12 m boyunda, yavaş; tek elinde (ona göre) küçük bir hançer. Muharebede üçü
+        // geniş bir hatta gelir.
+        const k = m > 1 ? i - (m - 1) / 2 : 0;
+        Object.assign(o, { x: k * 17, z: 28 + Math.abs(k) * 5, scale: 7, titan: true, hp: 1, speed: 2.6, skill: 0.4 + spec.skill * 0.6, color: TITAN_COLOR, bladeLen: TITAN_DAGGER });
       } else if (type === 'big') {
         // At seviyesi: normalden iri ama ağır düşmanlar, geniş alana dağılmış.
         const a = (i / m) * Math.PI * 2 + rand(-0.3, 0.3), r = rand(16, 28);
@@ -226,21 +237,18 @@ export class Game {
         });
       }
       const e = this.addChar(o);
-      if (e.titan) { this.titan = e; e.neckHp = 3; e.steamT = rand(5, 7); }
+      if (e.titan) { this.titan = this.titan || e; this.titans.push(e); e.neckHp = 3; e.steamT = rand(5, 7) + i * 1.7; }
       if (type === 'cav') this.mountOn(e, 0x2b2522, 0x0f0c0b);
       this.enemies.push(e);
     });
     // Müttefikler oyuncunun etrafında: maviler dost.
     (spec.allies || []).forEach((type, i) => {
-      const cav = type === 'cav', sx = i % 2 ? 1 : -1;
-      const a = this.addChar({
-        team: 'ally', hp: 1, color: ALLY_COLOR, yaw: 0, skill: Math.min(1, spec.skill + 0.2), speed: lerp(3.4, 5.4, spec.skill),
-        x: sx * (cav ? rand(6, 9) : rand(2.5, 5)) , z: pz + (cav ? rand(-2, 0) : rand(1.5, 4)), bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN,
-      });
-      if (cav) this.mountOn(a, 0xe8dcc4, 0x8a6a4a);
-      this.allies.push(a);
-      this.goodGuys.push(a);
+      const cav = type === 'cav', sx = i % 2 ? 1 : -1, crowd = spec.allies.length > 8;
+      this.spawnAlly(cav,
+        crowd ? sx * (2 + Math.floor(i / 2) * 1.8) + rand(-0.5, 0.5) : sx * (cav ? rand(6, 9) : rand(2.5, 5)),
+        pz + (crowd ? rand(1, 5) : cav ? rand(-2, 0) : rand(1.5, 4)));
     });
+    this.reinfT = 16; this.reinfLeft = spec.type === 'titanwar' ? 12 : 0;
     this.phase = 'play';
     this.endT = 0;
     this.time = 0;
@@ -251,13 +259,41 @@ export class Game {
     this.camTarget = null;
     this.updateCamera(0, true);
     this.hud.setLevel(n);
-    const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'battle' ? `MUHAREBE! ${m} düşman` : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
-    this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || spec.type === 'titan' || spec.type === 'battle' ? 'boss' : '');
+    const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'titanwar' ? `TİTAN MUHAREBESİ! ${m} titan, ${this.allies.length} dost` : spec.type === 'battle' ? `MUHAREBE! ${m} düşman` : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
+    this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || this.titanMode || spec.type === 'battle' ? 'boss' : '');
     if ((spec.type !== 'duel' && spec.type !== 'boss') || spec.env === 'grid') this.hintT = Math.max(this.hintT, 6);
     this.input.clear();
   }
 
   restartLevel() { this.startLevel(this.level); }
+
+  spawnAlly(cav, x, z) {
+    const sk = this.spec.skill;
+    const a = this.addChar({
+      team: 'ally', hp: 1, color: ALLY_COLOR, yaw: 0, skill: Math.min(1, sk + 0.2), speed: lerp(3.4, 5.4, sk),
+      x, z, bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN,
+    });
+    if (cav) this.mountOn(a, 0xe8dcc4, 0x8a6a4a);
+    this.allies.push(a);
+    this.goodGuys.push(a);
+    return a;
+  }
+
+  // Titan muharebesi: birlik azaldıkça arkadan üçer kişilik takviye gelir.
+  reinforce(h) {
+    if (this.reinfLeft <= 0 || this.phase !== 'play') return;
+    this.reinfT -= h;
+    if (this.reinfT > 0) return;
+    this.reinfT = 14;
+    if (this.allies.filter((a) => a.alive).length > 10) return;
+    const pl = this.player;
+    for (let i = 0; i < 3 && this.reinfLeft > 0; i++, this.reinfLeft--) {
+      let x = pl.x + (i - 1) * 2.5 + rand(-0.5, 0.5), z = pl.z - rand(10, 14);
+      if (!this.world.inside(x, z, 2)) { x = pl.x * 0.8 + (i - 1) * 2.5; z = pl.z * 0.8; }
+      this.spawnAlly(false, x, z);
+    }
+    this.fx.popup(pl.x, pl.y + 2.6, pl.z, 'TAKVİYE GELDİ!', '#7cc8ff', 22, 1.5);
+  }
 
   // Karakteri kendi rengindeki bir ata bindirir.
   mountOn(c, color, mane) {
@@ -293,7 +329,7 @@ export class Game {
       }
     }
     const taps = this.input.taps;
-    if (this.spec.type === 'titan' && this.phase === 'play' && this.player.alive) for (const t of taps) this.fireHook(t);
+    if (this.titanMode && this.phase === 'play' && this.player.alive) for (const t of taps) this.fireHook(t);
     taps.length = 0;
     if (this.slowT > 0) {
       this.slowT -= dt;
@@ -325,7 +361,8 @@ export class Game {
     this.h = h;
     this.time += h;
     this.world.step(h, this.player);
-    if (this.titan && this.titan.alive) this.titanSteam(this.titan, h);
+    for (const t of this.titans) if (t.alive) { this.titanSteam(t, h); this.titanDodge(t); }
+    if (this.reinfLeft > 0) this.reinforce(h);
     for (const hs of this.horses) {
       const r = hs.rider;
       hs.update(h, r && r.alive ? r.stickW : null, this.world);
@@ -417,11 +454,14 @@ export class Game {
         const b = cs[j];
         if (!b.alive || b.falling || b.mount || (b.isPlayer && b.y - b.gy > 0.5)) continue;
         const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
-        const min = 0.34 * (a.S + b.S);
+        // Titanın ayakları arasına sokulabilirsin (bacağını kesmek için); küçükler titanı
+        // itemez, o onları iter.
+        const lo = Math.min(a.S, b.S), hi = Math.max(a.S, b.S);
+        const min = hi > 2 * lo ? 0.34 * lo + 0.2 * hi : 0.34 * (a.S + b.S);
         if (d < min && d > 1e-4) {
-          const push = (min - d) * 0.5, nx = dx / d, nz = dz / d;
-          if (this.world.inside(a.x - nx * push, a.z - nz * push, 0.3)) { a.x -= nx * push; a.z -= nz * push; }
-          if (this.world.inside(b.x + nx * push, b.z + nz * push, 0.3)) { b.x += nx * push; b.z += nz * push; }
+          const over = min - d, nx = dx / d, nz = dz / d, pa = over * b.S / (a.S + b.S), pb = over * a.S / (a.S + b.S);
+          if (this.world.inside(a.x - nx * pa, a.z - nz * pa, 0.3)) { a.x -= nx * pa; a.z -= nz * pa; }
+          if (this.world.inside(b.x + nx * pb, b.z + nz * pb, 0.3)) { b.x += nx * pb; b.z += nz * pb; }
         }
       }
     }
@@ -431,11 +471,17 @@ export class Game {
 
   // Titana dokunulduysa onun o noktasına, yoksa ekran dışında önde-yukarıda bir noktaya halat.
   fireHook(tap) {
-    const pl = this.player, t = this.titan;
-    let rope = null;
-    const hit = tap && t && t.alive ? this.pickTitan(tap.x, tap.y) : null;
+    const pl = this.player;
+    let rope = null, hit = null;
+    // Dokunulan yerden geçen ışına en yakın titan (muharebede üç tane).
+    for (const tt of this.titans) {
+      if (!tt.alive || !tap) continue;
+      const h = this.pickTitan(tt, tap.x, tap.y);
+      if (h && (!hit || h.s < hit.s)) hit = h;
+    }
+    const t = this.camTarget && this.camTarget.titan && this.camTarget.alive ? this.camTarget : this.titans.find((x) => x.alive);
     if (hit) {
-      const rag = t.rag, bone = hit.bone, pt = { x: hit.x, y: hit.y, z: hit.z };
+      const rag = hit.t.rag, bone = hit.bone, pt = { x: hit.x, y: hit.y, z: hit.z };
       rope = {
         pt, pull: 48, release: 1.6, maxT: 2.2, t: 0, titan: true,
         anchor() {
@@ -460,8 +506,8 @@ export class Game {
     Sfx.swoosh(2);
   }
 
-  pickTitan(sx, sy) {
-    const t = this.titan, rag = t.rag;
+  pickTitan(t, sx, sy) {
+    const rag = t.rag;
     this.raycaster.setFromCamera({ x: sx / this.W * 2 - 1, y: -(sy / this.H) * 2 + 1 }, this.camera);
     const o = this.raycaster.ray.origin, d = this.raycaster.ray.direction;
     const fx = o.x + d.x * 400, fy = o.y + d.y * 400, fz = o.z + d.z * 400;
@@ -473,13 +519,13 @@ export class Game {
       const r = b.r * 1.3 + 0.6;
       if (segOut.d2 < r * r && segOut.s < bs) {
         bs = segOut.s;
-        best = { bone: b, u: segOut.t, x: lerp(A.x, B.x, segOut.t), y: lerp(A.y, B.y, segOut.t), z: lerp(A.z, B.z, segOut.t) };
+        best = { t, s: bs, bone: b, u: segOut.t, x: lerp(A.x, B.x, segOut.t), y: lerp(A.y, B.y, segOut.t), z: lerp(A.z, B.z, segOut.t) };
       }
     }
     const h = rag.pts[J.HEAD];
     ptSeg(h.x, h.y, h.z, o.x, o.y, o.z, fx, fy, fz);
     const hr = rag.d.headR * 1.3 + 0.6;
-    if (ptOut.d2 < hr * hr && ptOut.t < bs) best = { bone: 'head', u: 0, x: h.x, y: h.y, z: h.z };
+    if (ptOut.d2 < hr * hr && ptOut.t < bs) best = { t, s: ptOut.t, bone: 'head', u: 0, x: h.x, y: h.y, z: h.z };
     return best;
   }
 
@@ -493,7 +539,7 @@ export class Game {
     t.steamT -= h;
     const warn = t.steamT < STEAM_WARN && t.steamT > 0;
     if (warn) {
-      if (!t.hissing) { t.hissing = true; Sfx.hiss(); }
+      if (!t.hissing) { t.hissing = true; if (this.near(t, 40)) Sfx.hiss(); }
       const k = 1 - t.steamT / STEAM_WARN;
       if (Math.random() < h * (12 + 30 * k)) this.fx.steam(nx + rand(-0.4, 0.4), ny, nz + rand(-0.4, 0.4), rand(-1, 1) - fx * 1.5, rand(3, 6), rand(-1, 1) - fz * 1.5, rand(1.2, 2) * (0.7 + 0.6 * k), rand(0.7, 1.1), 0.9);
     }
@@ -508,8 +554,15 @@ export class Game {
       this.fx.steam(nx, ny, nz, Math.cos(a) * c * sp, up * sp + 2, Math.sin(a) * c * sp, rand(2, 3.3), rand(0.8, 1.3), 1);
     }
     for (let i = 0; i < 20; i++) this.fx.dust(nx + rand(-1.5, 1.5), ny + rand(-1, 1.5), nz + rand(-1.5, 1.5), rand(-9, 9), rand(-9, 9));
-    Sfx.splash();
-    Sfx.hiss(true);
+    if (this.near(t, 40)) { Sfx.splash(); Sfx.hiss(true); }
+    // Dibindeki müttefikler de savrulur.
+    for (const a of this.allies) {
+      if (!a.alive) continue;
+      const dx = a.x - nx, dy = a.y + 1 - ny, dz = a.z - nz, d = Math.hypot(dx, dy, dz) || 1;
+      if (d > 11) continue;
+      const k = 14 * (1 - d / 14), hl = Math.hypot(dx, dz) || 1;
+      a.vx += dx / hl * k; a.vz += dz / hl * k; a.kb = 0.5;
+    }
     if (!pl.alive) return;
     const dx = pl.x - nx, dy = pl.y + 1 - ny, dz = pl.z - nz, d = Math.hypot(dx, dy, dz) || 1;
     if (d > 11) return;
@@ -520,6 +573,20 @@ export class Game {
     pl.kb = 0.5;
     this.fx.popup(pl.x, pl.y + 2, pl.z, 'BUHAR!', '#ffffff', 26, 1.1);
     this.shake(0.2);
+  }
+
+  // Titanın hançeri inmeden hemen önce dibindeki müttefikler (becerisine göre) geri sıçrar.
+  titanDodge(t) {
+    const s = t.swing;
+    if (!s || s.dodged || s.t < s.wind - 0.05) return;
+    s.dodged = true;
+    for (const a of this.allies) {
+      if (!a.alive || a.stun > 0 || a.kb > 0 || a.mount) continue;
+      const dx = a.x - t.x, dz = a.z - t.z, d = Math.hypot(dx, dz);
+      if (d > 8 || Math.random() > lerp(0.35, 0.7, a.skill)) continue;
+      this.knock(a, dx, dz, 9);
+      a.vy = Math.max(a.vy, 3.5);
+    }
   }
 
   knock(c, dx, dz, speed) {
@@ -566,6 +633,7 @@ export class Game {
 
   dropSword(c) {
     if (!c.hasSword || !c.swordMesh) return;
+    if (c.hasSword2) this.dropSword2(c, false);
     c.hasSword = false;
     const s = c.sw, h = this.h || MAX_STEP;
     const vel = { x: (c.bCur.bx - c.bPrev.bx) / h, y: (c.bCur.by - c.bPrev.by) / h, z: (c.bCur.bz - c.bPrev.bz) / h };
@@ -574,60 +642,82 @@ export class Game {
     c.swordMesh = null;
   }
 
+  // Çift kılıçtan biri düşer. right: sağ el gitti; onun (birinci) kılıcı uçar, sol eldeki
+  // kılıç tek kılıç olarak devam eder.
+  dropSword2(c, right) {
+    if (!c.hasSword2) return;
+    c.hasSword2 = false;
+    const s = right ? c.sw : c.sw2, bc = right ? c.bCur : c.b2Cur, bp = right ? c.bPrev : c.b2Prev, h = this.h || MAX_STEP;
+    const vel = { x: (bc.bx - bp.bx) / h, y: (bc.by - bp.by) / h, z: (bc.bz - bp.bz) / h };
+    const L = (BLADE_START + c.bladeLen) * c.S;
+    const mesh = right ? c.swordMesh : c.sword2Mesh;
+    this.loose.push(new LooseSword(mesh, { x: s.gx, y: s.gy, z: s.gz }, { x: s.dx, y: s.dy, z: s.dz }, { x: s.wx, y: s.wy, z: s.wz }, vel, L));
+    if (right) c.swordMesh = c.sword2Mesh;
+    c.sword2Mesh = null;
+  }
+
   // ---------- dövüş ----------
 
   combat(h) {
     for (const a of this.chars) {
       if (!a.alive || !a.swingActive) continue;
-      const pb = a.bPrev, cb = a.bCur;
-      const x0 = Math.min(pb.bx, pb.tx, cb.bx, cb.tx) - 0.2, x1 = Math.max(pb.bx, pb.tx, cb.bx, cb.tx) + 0.2;
-      const y0 = Math.min(pb.by, pb.ty, cb.by, cb.ty) - 0.2, y1 = Math.max(pb.by, pb.ty, cb.by, cb.ty) + 0.2;
-      const z0 = Math.min(pb.bz, pb.tz, cb.bz, cb.tz) - 0.2, z1 = Math.max(pb.bz, pb.tz, cb.bz, cb.tz) + 0.2;
-      if (this.world.ropes) this.cutRopes(a, pb, cb, x0, x1, z0, z1);
-      // Oyuncu herkesi (cesetleri de) keser; düşmanlar oyuncuyu ve yollarındaki arkadaşlarını.
-      const targets = a.titan ? [this.player] : this.chars;
-      for (const o of targets) {
-        const ep = a.curEp;
-        if (!ep) break;
-        if (o === a || ep.hits.has(o)) continue;
-        if (!a.isPlayer && !o.alive) continue;
-        if (a.isPlayer && !o.alive && o.side === 0) continue; // dost cesedini doğrama
-        const bb = o.rag.bounds(this._bb);
-        if (bb.x1 < x0 || bb.x0 > x1 || bb.y1 < y0 || bb.y0 > y1 || bb.z1 < z0 || bb.z0 > z1) continue;
-
-        if (o.alive && o.hasSword && !o.titan && !a.titan && !ep.rolled.has(o)) {
-          // Kılıç kılıca: ikisi de savuruyorsa KLANG, değilse savunan şansla bloklar.
-          const pt = sweepBlade(pb, cb, o.bCur, 3, 0.05);
-          if (pt) {
-            if (o.swingActive) { this.parry(a, o, pt); break; }
-            ep.rolled.add(o);
-            if (Math.random() < (o.isPlayer ? 0.4 : lerp(0.15, 0.45, o.skill))) { this.block(a, o, pt); break; }
-          }
-        }
-        const hit = sweepRagdoll(o.rag, pb, cb, 4);
-        if (!hit) continue;
-        // Düşman, oyuncunun vuruşunu kılıcıyla karşılayabilir (seviye arttıkça daha sık).
-        // Arkadaşından gelen darbeyi beklemez.
-        if (a.side !== o.side && !o.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && o.state !== 'attack' && o.state !== 'panic' && !ep.rolled.has(o)) {
-          ep.rolled.add(o);
-          if (Math.random() < lerp(0.08, 0.45, o.skill)) {
-            o.blockT = 0.35;
-            o.blockUx = ep.ux; o.blockUy = ep.uy;
-            o.counterT = 0.3;
-            this.block(a, o, hit);
-            break;
-          }
-        }
-        ep.hits.add(o);
-        let vx = lerp(cb.bx - pb.bx, cb.tx - pb.tx, hit.t) / h;
-        let vy = lerp(cb.by - pb.by, cb.ty - pb.ty, hit.t) / h;
-        let vz = lerp(cb.bz - pb.bz, cb.tz - pb.tz, hit.t) / h;
-        const sp = Math.hypot(vx, vy, vz) || 1, m = clamp(sp, 4, 13);
-        vx = vx / sp * m; vy = vy / sp * m; vz = vz / sp * m;
-        this.onHit(a, o, hit, vx, vy, vz);
-      }
+      // Çift kılıçlı iki bıçakla keser; her bıçak aynı hedefe bir dalgada bir kez.
+      for (let bi = 0; bi < (a.hasSword2 ? 2 : 1); bi++) this.bladeHits(a, bi, h);
     }
     this.poke();
+  }
+
+  bladeHits(a, bi, h) {
+    const pb = bi ? a.b2Prev : a.bPrev, cb = bi ? a.b2Cur : a.bCur;
+    const x0 = Math.min(pb.bx, pb.tx, cb.bx, cb.tx) - 0.2, x1 = Math.max(pb.bx, pb.tx, cb.bx, cb.tx) + 0.2;
+    const y0 = Math.min(pb.by, pb.ty, cb.by, cb.ty) - 0.2, y1 = Math.max(pb.by, pb.ty, cb.by, cb.ty) + 0.2;
+    const z0 = Math.min(pb.bz, pb.tz, cb.bz, cb.tz) - 0.2, z1 = Math.max(pb.bz, pb.tz, cb.bz, cb.tz) + 0.2;
+    if (this.world.ropes) this.cutRopes(a, pb, cb, x0, x1, z0, z1);
+    // Oyuncu herkesi (cesetleri de) keser; düşmanlar oyuncuyu ve yollarındaki arkadaşlarını.
+    // Titan sadece karşı takımı (oyuncu ve müttefikler) keser.
+    const targets = a.titan ? this.goodGuys : this.chars;
+    for (const o of targets) {
+      const ep = a.curEp;
+      if (!ep || (a.titan && !a.swingActive)) break;
+      const hits = bi ? ep.hits2 : ep.hits;
+      if (o === a || hits.has(o)) continue;
+      if (!a.isPlayer && !o.alive) continue;
+      if (a.isPlayer && !o.alive && o.side === 0) continue; // dost cesedini doğrama
+      const bb = o.rag.bounds(this._bb);
+      if (bb.x1 < x0 || bb.x0 > x1 || bb.y1 < y0 || bb.y0 > y1 || bb.z1 < z0 || bb.z0 > z1) continue;
+
+      if (o.alive && o.hasSword && !o.titan && !a.titan && !ep.rolled.has(o) && !(a.side === o.side && this.spec.type === 'titanwar')) {
+        // Kılıç kılıca: ikisi de savuruyorsa KLANG, değilse savunan şansla bloklar.
+        const pt = sweepBlade(pb, cb, o.bCur, 3, 0.05);
+        if (pt) {
+          if (o.swingActive) { this.parry(a, o, pt); break; }
+          ep.rolled.add(o);
+          if (Math.random() < (o.isPlayer ? 0.4 : lerp(0.15, 0.45, o.skill))) { this.block(a, o, pt); break; }
+        }
+      }
+      const hit = sweepRagdoll(o.rag, pb, cb, 4);
+      if (!hit) continue;
+      // Düşman, oyuncunun vuruşunu kılıcıyla karşılayabilir (seviye arttıkça daha sık).
+      // Arkadaşından gelen darbeyi beklemez.
+      if (a.side !== o.side && !o.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && o.state !== 'attack' && o.state !== 'panic' && !ep.rolled.has(o)) {
+        ep.rolled.add(o);
+        if (Math.random() < lerp(0.08, 0.45, o.skill)) {
+          o.blockT = 0.35;
+          o.blockUx = ep.ux; o.blockUy = ep.uy;
+          o.counterT = 0.3;
+          this.block(a, o, hit);
+          break;
+        }
+      }
+      hits.add(o);
+      hit.blade = bi;
+      let vx = lerp(cb.bx - pb.bx, cb.tx - pb.tx, hit.t) / h;
+      let vy = lerp(cb.by - pb.by, cb.ty - pb.ty, hit.t) / h;
+      let vz = lerp(cb.bz - pb.bz, cb.tz - pb.tz, hit.t) / h;
+      const sp = Math.hypot(vx, vy, vz) || 1, m = clamp(sp, 4, 13);
+      vx = vx / sp * m; vy = vy / sp * m; vz = vz / sp * m;
+      this.onHit(a, o, hit, vx, vy, vz);
+    }
   }
 
   // Platform halatları: savrulan bıçak değdiği halatı keser, kimin olduğuna bakmaz.
@@ -743,6 +833,14 @@ export class Game {
     // Arkadaşını kesen düşman: kurban bazen kin tutup ona döner.
     const friendly = a.side === o.side && a !== o;
     if (friendly && wasAlive && Math.random() < 0.55) { o.grudge = a; o.grudgeT = 4; }
+    // Titan muharebesinde herkes titanın ayak dibine yığılır: dost ateşi öldürmez, iter.
+    if (friendly && wasAlive && this.spec.type === 'titanwar') {
+      this.knock(o, o.x - a.x, o.z - a.z, 3);
+      if (this.time > (o.heyT || 0) && this.near(o)) { o.heyT = this.time + 2; this.fx.popup(o.x, 2.2, o.z, 'HEY!', '#fff', 16, 0.8); }
+      return;
+    }
+    // Titanın hançeri bir müttefike saplanınca savuruş biter: bir savuruşta bir kişi.
+    if (a.titan && !o.isPlayer && wasAlive) this.cancelSwing(a);
 
     if (o.isPlayer && wasAlive) {
       this.hitPlayer(a, o, hit, vx, vy, vz);
@@ -754,21 +852,27 @@ export class Game {
     const onBody = hit.head || rag.pts[rag.bones[hit.bone].a].attached;
     // Boss son canına kadar hiç kopmaz, sadece yaralanır. Titanın gövdesi kesilemeyecek kadar
     // kalın; ensesi ancak üçüncü darbede kopar.
-    const neckSafe = o.titan && (o.neckHp > 1 || this.time < (o.neckCd || 0));
-    const armored = wasAlive && ((o.armored && o.hp > 1) || (o.titan && (kind === 'torso' || (kind === 'neck' && neckSafe))));
+    // Çift kılıçta her bıçağın ensede kendi bekleme süresi var: iki bıçak birden isabet
+    // ederse bir dalışta iki darbe sayılır.
+    const cdKey = hit.blade ? 'neckCd2' : 'neckCd';
+    const neckSafe = o.titan && (o.neckHp > 1 || this.time < (o[cdKey] || 0));
+    // Müttefiklerin küçük kılıçları titanın bacağını çoğunlukla sadece sıyırır.
+    const scratch = o.titan && !a.isPlayer && Math.random() > NPC_TITAN_CUT;
+    const armored = wasAlive && ((o.armored && o.hp > 1) || (o.titan && (kind === 'torso' || (kind === 'neck' && (neckSafe || !a.isPlayer)) || scratch)));
     const P = rag.pts, ends = [J.LHAND, J.RHAND, J.LFOOT, J.RFOOT].map((i) => P[i].attached);
     const res = armored ? null : this.applyCut(rag, hit);
     // Bu darbeyle yeni kopan el/ayak var mı (güdüğü tekrar kesmek sayılmaz)?
     const lost = [J.LHAND, J.RHAND, J.LFOOT, J.RFOOT].some((i, k) => ends[k] && !P[i].attached);
     rag.addVel(vx * 0.2, vy * 0.2 + 0.6, vz * 0.2, this.h);
     this.gore(rag, res, hit, vx, vy, vz);
-    if (a.swordMesh) {
-      const bm = a.swordMesh.userData.bladeMat;
+    const sm = hit.blade ? a.sword2Mesh : a.swordMesh;
+    if (sm) {
+      const bm = sm.userData.bladeMat;
       a.blood = Math.min(1, (a.blood || 0) + 0.12);
       bm.color.setRGB(lerp(0.89, 0.75, a.blood), lerp(0.91, 0.12, a.blood), lerp(0.93, 0.15, a.blood));
     }
     if (!wasAlive) return;
-    if (o.titan) { if (onBody) this.hitTitan(o, a, (res && res.kind === 'neck') || lost ? res : null, kind, vx, vy, vz); return; }
+    if (o.titan) { if (onBody) this.hitTitan(o, a, (res && res.kind === 'neck') || lost ? res : null, kind, vx, vy, vz, cdKey); return; }
 
     // Sıradan düşman tek vuruşta ölür (kol dahil); boss canı bitene kadar dayanır.
     if (!res) o.hp--; else o.hp = 0;
@@ -786,15 +890,16 @@ export class Game {
 
   // Titan: kolu, bacağı gitse de savaşır (bacaksızsa sürünür), gövdesi kesilmeyecek kadar
   // kalın. Sadece ense (boyun ya da kafa) kesilince düşer.
-  hitTitan(o, a, res, kind, vx, vy, vz) {
+  hitTitan(o, a, res, kind, vx, vy, vz, cdKey = 'neckCd') {
     if (res && res.kind === 'neck') { this.killEnemy(o, a, res, vx, vy, vz); return; }
     o.flash = 0.15;
     const y = o.rag.pts[J.NECK].y + 1;
+    if (!a.isPlayer && !res) { if (this.near(o, 14)) Sfx.thud(600); return; } // müttefik sıyırdı
     if (kind === 'neck') {
       // Enseye isabet ama kopmadı: titan sendeler, öfkelenir (hemen buhar üfler).
-      // Aynı dalışta ikinci kez sayılmaz.
-      if (this.time < (o.neckCd || 0)) return;
-      o.neckCd = this.time + 0.8;
+      // Aynı bıçakla aynı dalışta ikinci kez sayılmaz.
+      if (this.time < (o[cdKey] || 0)) return;
+      o[cdKey] = this.time + 0.8;
       o.neckHp--;
       o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
       o.steamT = Math.min(o.steamT, 1.0);
@@ -808,7 +913,7 @@ export class Game {
     if (res) {
       if (res.kind === 'arm') o.checkGrip();
       o.stun = 0.35; o.state = 'stagger'; this.cancelSwing(o);
-      this.fx.popup(o.x, y, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
+      if (a.isPlayer || this.near(o, 25)) this.fx.popup(o.x, y, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
       if (!this.titanHinted) { this.titanHinted = true; this.fx.popup(o.x, y - 1.6, o.z, 'Ölmedi! ENSESİNİ kes', '#fff', 20, 1.8); }
       this.slowmo(0.15, 0.35);
       this.shake(0.15);
@@ -828,7 +933,8 @@ export class Game {
     this.hud.flash = 0.6;
     this.shake(0.15);
     this.cancelSwing(o);
-    let res = kind === 'torso' ? null : this.applyCut(rag, hit);
+    // Titanın hançeri kafaya gelse de kafa uçmaz (üç titanla piyango olmasın), bir uzuv gider.
+    let res = kind === 'torso' || (a.titan && kind === 'neck') ? null : this.applyCut(rag, hit);
     if (!res && a.titan) {
       // Titanın darbesi gövdeye gelse de bir uzvunu koparır.
       const limbs = [];
@@ -927,7 +1033,12 @@ export class Game {
     const type = this.spec.type;
     const py = pl.alive ? pl.y : Math.max(pl.gy, P.y - 0.8);
     let t = this.camTarget;
-    if (type === 'titan') t = this.titan && this.titan.alive ? this.titan : null;
+    if (this.titanMode) {
+      // En yakın titana kilitlenir (muharebede o ölünce sıradakine geçer).
+      let near = null, nd = Infinity;
+      for (const x of this.titans) { if (!x.alive) continue; const d = Math.hypot(x.x - fx, x.z - fz); if (d < nd) { nd = d; near = x; } }
+      if (!t || !t.alive || !t.titan || (near && near !== t && nd < 0.6 * Math.hypot(t.x - fx, t.z - fz))) t = near;
+    }
     else if (type === 'horse') t = null;
     else if (type === 'battle') {
       // Muharebede kamera yavaşça en yakın düşmana döner: kalabalığı geçip gidince "ileri"
@@ -954,11 +1065,11 @@ export class Game {
     let dist = portrait ? 4.0 : 4.1, height = portrait ? 3.5 : 2.6, ahead = 1.9, lookY = portrait ? 0.55 : 0.8;
     if (type === 'horse') { dist = portrait ? 6.8 : 6.2; height = portrait ? 5.2 : 4.2; ahead = 3.5; lookY = 1.2; }
     if (type === 'battle') { dist = portrait ? 8.5 : 7.5; height = portrait ? 6.5 : 5.2; ahead = 5; lookY = 1.2; }
-    if (type === 'titan') { dist = portrait ? 9.5 : 8.5; height = portrait ? 4.5 : 3.6; ahead = 7; lookY = 3 + py * 0.5; }
+    if (this.titanMode) { dist = portrait ? 9.5 : 8.5; height = portrait ? 4.5 : 3.6; ahead = 7; lookY = 3 + py * 0.5; }
     const s = Math.sin(this.camYaw), c = Math.cos(this.camYaw);
-    _v.set(fx - s * dist, height + py * (type === 'titan' ? 0.85 : 1), fz - c * dist);
+    _v.set(fx - s * dist, height + py * (this.titanMode ? 0.85 : 1), fz - c * dist);
     if (snap) this.camera.position.copy(_v); else this.camera.position.lerp(_v, damp(7, dt));
-    const look = _v.set(fx + s * ahead, lookY + (type === 'titan' ? py * 0.5 : type === 'horse' || type === 'battle' ? 0 : py), fz + c * ahead);
+    const look = _v.set(fx + s * ahead, lookY + (this.titanMode ? py * 0.5 : type === 'horse' || type === 'battle' ? 0 : py), fz + c * ahead);
     if (snap) this.lookAt.copy(look); else this.lookAt.lerp(look, damp(9, dt));
     this.camera.lookAt(this.lookAt);
     if (this.shakeAmt > 0.001) {
@@ -992,6 +1103,7 @@ export class Game {
       if (c.alive && c.hasSword && c.swordMesh) {
         const s = c.sw;
         placeSword(c.swordMesh, s.gx, s.gy, s.gz, s.dx, s.dy, s.dz, s.wx, s.wy, s.wz);
+        if (c.hasSword2 && c.sword2Mesh) { const q = c.sw2; placeSword(c.sword2Mesh, q.gx, q.gy, q.gz, q.dx, q.dy, q.dz, q.wx, q.wy, q.wz); }
       }
     }
     for (const l of this.loose) l.render();

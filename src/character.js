@@ -27,6 +27,10 @@ const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1], [1, 0], [-1, 0]];
 export const TITAN_DAGGER = 0.42; // titanın hançeri (bıçak boyu, ölçeksiz)
 const _F = [0, 0, 1], _U = [1, 0, 0], _PV = [0, 0, 0];
 const TITAN_R = [[J.RSH, J.RELB, J.RHAND, 0, 0.8]], TITAN_L = [[J.LSH, J.LELB, J.LHAND, 0, -0.8]];
+// Çift kılıç: sağ el birinci (fiziksel) kılıcı, sol el onun aynadaki eşini tutar; ikisi V açar.
+const DUAL_V = 0.25, DUAL_OFF = 0.12;
+const TWO_HAND = [[J.RSH, J.RELB, J.RHAND, 0.05, 0.8, 0], [J.LSH, J.LELB, J.LHAND, -0.065, -0.8, 0]];
+const DUAL_HAND = [[J.RSH, J.RELB, J.RHAND, 0, 0.8, 0], [J.LSH, J.LELB, J.LHAND, 0, -0.8, 1]];
 const _sad = { x: 0, y: 0, z: 0 };
 // Her savuruşun rastgele yüksekliği (radyan, eksi = aşağı): çoğu alçaktan geçer.
 const SWING_BIAS = [-0.45, -0.35, -0.2, -0.1, 0, 0.1, 0.25];
@@ -76,6 +80,7 @@ export class Character {
     this.alive = true;
     this.falling = false;
     this.hasSword = true;
+    this.hasSword2 = !!o.dual;  // titanlara karşı oyuncunun sol elindeki ikinci kılıç
     this.t = rand(0, 10);
     this.phase = 0;
     this.flash = 0; this.invuln = 0; this.hurtT = 0; this.kb = 0; this.stun = 0;
@@ -113,6 +118,10 @@ export class Character {
     this.sw = { gx: 0, gy: 0, gz: 0, dx: 0, dy: 1, dz: 0, wx: 1, wy: 0, wz: 0 };
     this.bCur = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
     this.bPrev = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
+    this.lg2 = [0, 0, 0]; this.ld2 = [0, 0, 1];
+    this.sw2 = { gx: 0, gy: 0, gz: 0, dx: 0, dy: 1, dz: 0, wx: 1, wy: 0, wz: 0 };
+    this.b2Cur = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
+    this.b2Prev = { bx: 0, by: 0, bz: 0, tx: 0, ty: 0, tz: 0 };
     this.bladeLen = o.bladeLen || BLADE_LEN;
     // Fiziksel kılıç ucu: kaslar onu hedef yöne yayla çeker. Dururken gevşek (sarkar,
     // sallanır), savururken gergin.
@@ -121,6 +130,7 @@ export class Character {
     this.bladeKSwing = this.isPlayer ? 420 : this.heavy ? 200 : this.boss ? 260 : lerp(300, 420, this.skill);
     this.swordMesh = createSwordMesh(this.bladeLen, this.titan ? 0.1 : 0.07);
     this.swordMesh.scale.setScalar(this.S);
+    this.sword2Mesh = this.hasSword2 ? createSwordMesh(this.bladeLen) : null;
     this.view = new CharacterView(this, o.color);
     this.computeSword(0);
     this.copyBlade();
@@ -212,7 +222,7 @@ export class Character {
       dur: fast ? 0.2 : 0.5,
       rec: fast ? 0.18 : lerp(0.55, 0.35, sk),
       hits: new Set(), rolled: new Set(), kills: 0,
-      tx: 0, ty: 0, tz: 0, high: false,
+      tx: 0, ty: 0, tz: 0, high: false, tg: this.target || this.game.player,
     };
     if (this.titan) this.aimTitan();
     this.game.onSwingStart(this);
@@ -221,7 +231,7 @@ export class Character {
   // Titan: savuruşun geçeceği nokta (dünya), oyuncunun o an olacağı yer. Hazırlanırken
   // her karede güncellenir, savuruş başlayınca donar: son anda yön değiştiren kurtulur.
   aimTitan() {
-    const s = this.swing, pl = this.game.player;
+    const s = this.swing, pl = s.tg;
     const left = Math.max(0, s.wind - s.t) + s.dur * 0.3;
     const k = lerp(0.35, 0.85, this.skill);
     s.tx = pl.x + (pl.vx + pl.slideX) * left * k;
@@ -355,7 +365,8 @@ export class Character {
     // kafa kesmeyi bedava yapmasın.
     const L = this.local, TL = tg.local;
     const hG = this.y + lerp(L[J.NECK * 3 + 1], L[J.PELVIS * 3 + 1], 0.28) - 0.1 * this.S;
-    const hT = tg.y + lerp(TL[J.NECK * 3 + 1], TL[J.PELVIS * 3 + 1], 0.4);
+    // Titana karşı göğüs hizası yok: bacaklarına (diz altına) savurur.
+    const hT = tg.titan ? tg.y + 0.9 : tg.y + lerp(TL[J.NECK * 3 + 1], TL[J.PELVIS * 3 + 1], 0.4);
     const pw = clamp(Math.atan2(hT - hG, Math.max(0.8, dist - 0.3)), -0.6, 0.35);
     this.pitchAdj += (pw - this.pitchAdj) * damp(6, dt);
     if (g.time < 0.8) { turnTo(toT, 3, 0.25); return; } // seviye başında kısa bir nefes
@@ -364,7 +375,7 @@ export class Character {
     // Karşı takımda kimse kalmadıysa (düşmana göre: oyuncu öldüyse) sevinir.
     if ((!tg0 || (this.side && !pl.alive)) && this.state !== 'panic') this.state = 'cheer';
     if (this.mount && this.state !== 'cheer') { this.thinkRider(dt, tg, dx, dz, dist, toT, turnTo); return; }
-    const sk = this.skill, reach = 1.6 * this.S;
+    const sk = this.skill, reach = tg.titan ? 2.1 : 1.6 * this.S;
     // Başparmak gecikmesi: hedefi insan gibi biraz geriden takip eder.
     const track = lerp(2.5, 5.5, sk) * (this.heavy ? 0.6 : 1);
     switch (this.state) {
@@ -417,6 +428,7 @@ export class Character {
       if (!o.alive) continue;
       let d = Math.hypot(o.x - this.x, o.z - this.z);
       if (o === cur) d *= 0.7;
+      if (this.titan && o.isPlayer) d *= 0.6; // titan en çok oyuncuya sinirli
       if (d < bd) { bd = d; best = o; }
     }
     this.target = best;
@@ -461,7 +473,7 @@ export class Character {
   mayAttack(tg, careful = false) {
     const g = this.game;
     // Kalabalık muharebede herkes önce yanına bakar (yine de kazalar olur).
-    if (careful || g.spec.type === 'battle' || Math.random() < 0.6 + 0.35 * this.skill) {
+    if (careful || g.spec.type === 'battle' || g.spec.type === 'titanwar' || Math.random() < 0.6 + 0.35 * this.skill) {
       const toT = Math.atan2(tg.x - this.x, tg.z - this.z), R = 2.2 * this.S;
       for (const o of g.matesOf(this)) {
         if (o === this || o === tg || !o.alive) continue;
@@ -521,7 +533,7 @@ export class Character {
 
   // Titan: eski usul yapay zekâ; yaklaşır, sırası gelince kollarıyla yay çizerek vurur.
   thinkTitan(dt) {
-    const g = this.game, pl = g.player;
+    const g = this.game, pl = this.pickTarget(dt) || g.player;
     const dx = pl.x - this.x, dz = pl.z - this.z;
     const dist = Math.hypot(dx, dz) || 1;
     this.want.x = 0; this.want.z = 0;
@@ -530,7 +542,7 @@ export class Character {
     this.timer -= dt;
     this.cool -= dt;
     const engage = 0.5 * this.S;
-    if (!pl.alive) this.state = 'cheer';
+    if (!pl.alive || !g.player.alive) this.state = 'cheer';
     switch (this.state) {
       case 'approach': {
         const lm = this.legMask;
@@ -543,7 +555,7 @@ export class Character {
         this.want.z = dz / dist * clamp((dist - engage) * 3, -2, this.speed);
         const high = pl.y > 3;
         // Havadakine (ensesine gelene) daha uzaktan da el sallar.
-        if (this.hasSword && this.cool <= 0 && dist < engage + 1 + this.skill * 0.8 + (high ? 4 : 0) && g.takeAttackToken(this)) {
+        if (this.hasSword && this.cool <= 0 && dist < engage + 1 + this.skill * 0.8 + (high ? 4 : 0) && (pl !== g.player || g.takeAttackToken(this))) {
           const [ux, uy] = pick(high ? TITAN_HIGH : TITAN_LOW);
           this.startSwing(ux, uy, false);
           this.swing.high = high;
@@ -554,7 +566,8 @@ export class Character {
         break;
       }
       case 'attack':
-        if (!this.swing) { this.state = 'fight'; this.cool = rand(0.5, 1.3) * lerp(1.3, 0.55, this.skill); }
+        // Ayağının dibindeki müttefiklere daha seyrek savurur (yoksa birlik saniyeler içinde erir).
+        if (!this.swing) { this.state = 'fight'; this.cool = rand(0.5, 1.3) * lerp(1.3, 0.55, this.skill) * (pl === g.player ? 1 : 2.2); }
         break;
       case 'stagger':
         if (this.stun <= 0) { this.state = 'fight'; this.cool = rand(0.2, 0.6); }
@@ -838,8 +851,9 @@ export class Character {
       const pitch = Math.max(-0.8, lerp(restP, swingP, spd) + this.pitchAdj);
       this.lowSwing = spd * clamp((-0.1 - swingP) / 0.45, 0, 1);
       const sr = Math.sin(rel), cr = Math.cos(rel), cp = Math.cos(pitch);
-      d[0] = sr * cp; d[1] = Math.sin(pitch); d[2] = cr * cp;
-      w[0] = cr; w[1] = 0; w[2] = -sr;
+      const relD = rel + (this.hasSword2 ? DUAL_V : 0), sd = Math.sin(relD), cd = Math.cos(relD);
+      d[0] = sd * cp; d[1] = Math.sin(pitch); d[2] = cd * cp;
+      w[0] = cd; w[1] = 0; w[2] = -sd;
       // Alçak savuruşta kollar öne uzanır (eğik bıçak yatayda kısalmasın).
       const reach = (0.3 + spd * (0.12 + 0.18 * lo)) * S;
       const bob = Math.sin(this.phase * 2) * 0.045 * S * run;
@@ -874,6 +888,7 @@ export class Character {
       const l = Math.hypot(d[0], d[1], d[2]) || 1;
       d[0] /= l; d[1] /= l; d[2] /= l;
     }
+    if (this.hasSword2) g[0] += DUAL_OFF * S;
     // Dünyaya
     const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
     const sw = this.sw;
@@ -887,11 +902,34 @@ export class Character {
     const c = this.bCur;
     c.bx = sw.gx + sw.dx * b0; c.by = sw.gy + sw.dy * b0; c.bz = sw.gz + sw.dz * b0;
     c.tx = sw.gx + sw.dx * b1; c.ty = sw.gy + sw.dy * b1; c.tz = sw.gz + sw.dz * b1;
+    if (this.hasSword2 && this.hasSword) this.computeSword2(cx, b0, b1);
+  }
+
+  // İkinci kılıç: birincinin (fiziksel ucuyla) gövdeye göre aynadaki eşi. Birinci soldan
+  // sağa savrulurken bu sağdan sola gelir, önde makas gibi kesişirler; topaç gibi dönünce
+  // ikisi de dönen gövdeyle döner.
+  computeSword2(cx, b0, b1) {
+    const g = this.lg, d = this.ld, g2 = this.lg2, d2 = this.ld2;
+    g2[0] = 2 * cx - g[0]; g2[1] = g[1]; g2[2] = g[2];
+    d2[0] = -d[0]; d2[1] = d[1]; d2[2] = d[2];
+    const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw), sw = this.sw2;
+    sw.gx = this.x - cs * g2[0] + sn * g2[2]; sw.gy = this.y + g2[1]; sw.gz = this.z + sn * g2[0] + cs * g2[2];
+    sw.dx = -cs * d2[0] + sn * d2[2]; sw.dy = d2[1]; sw.dz = sn * d2[0] + cs * d2[2];
+    let wx = sw.dz, wz = -sw.dx;
+    const wl = Math.hypot(wx, wz);
+    if (wl < 0.2) { wx = -cs; wz = sn; } else { wx /= wl; wz /= wl; }
+    sw.wx = wx; sw.wy = 0; sw.wz = wz;
+    const c = this.b2Cur;
+    c.bx = sw.gx + sw.dx * b0; c.by = sw.gy + sw.dy * b0; c.bz = sw.gz + sw.dz * b0;
+    c.tx = sw.gx + sw.dx * b1; c.ty = sw.gy + sw.dy * b1; c.tz = sw.gz + sw.dz * b1;
   }
 
   copyBlade() {
     const a = this.bCur, b = this.bPrev;
     b.bx = a.bx; b.by = a.by; b.bz = a.bz; b.tx = a.tx; b.ty = a.ty; b.tz = a.tz;
+    if (!this.hasSword2) return;
+    const a2 = this.b2Cur, p2 = this.b2Prev;
+    p2.bx = a2.bx; p2.by = a2.by; p2.bz = a2.bz; p2.tx = a2.tx; p2.ty = a2.ty; p2.tz = a2.tz;
   }
 
   // Kılıç: kabzadan uca uzanan, yaylı bir sarkaç. Kaslar ucu hedef yöne (sw.d) çeker;
@@ -970,7 +1008,7 @@ export class Character {
       let d = w > thr ? (yawDir || (ep && ep.dir !== 2 ? ep.dir : 3)) : 2;
       if (ep && ep.dir === 3 && (d === 1 || d === -1)) { ep.dir = d; ep.ux = -d; ep.uy = 0; d = ep.dir; }
       if (!ep || ep.dir !== d) {
-        this.episode = { hits: new Set(), rolled: new Set(), kills: 0, dir: d, ux: d === 3 ? 0 : d === 2 ? 1 : -d, uy: d === 3 ? -1 : 0 };
+        this.episode = { hits: new Set(), hits2: new Set(), rolled: new Set(), kills: 0, dir: d, ux: d === 3 ? 0 : d === 2 ? 1 : -d, uy: d === 3 ? -1 : 0 };
         this.game.onSwingStart(this);
         if (d !== 2 && w > 6) { if (this.isPlayer) Sfx.swoosh(1); else Sfx.enemySwing(); }
       }
@@ -1016,12 +1054,9 @@ export class Character {
   applyArms() {
     if (!this.hasSword) return;
     const L = this.local, S = this.S, d = this.d;
-    const g = this.lg, dir = this.ld;
-    const arms = this.titan ? (this.gripR ? TITAN_R : TITAN_L) : [
-      [J.RSH, J.RELB, J.RHAND, 0.05 * S, 0.8],
-      [J.LSH, J.LELB, J.LHAND, -0.065 * S, -0.8],
-    ];
-    for (const [iS, iE, iH, off, px] of arms) {
+    const arms = this.titan ? (this.gripR ? TITAN_R : TITAN_L) : this.hasSword2 ? DUAL_HAND : TWO_HAND;
+    for (const [iS, iE, iH, o, px, second] of arms) {
+      const g = second ? this.lg2 : this.lg, dir = second ? this.ld2 : this.ld, off = o * S;
       const hx = g[0] + dir[0] * off, hy = g[1] + dir[1] * off, hz = g[2] + dir[2] * off;
       ik2(L[iS * 3], L[iS * 3 + 1], L[iS * 3 + 2], hx, hy, hz, d.ua, d.fa, px, -1, -0.3, _ik);
       L[iE * 3] = _ik[0]; L[iE * 3 + 1] = _ik[1]; L[iE * 3 + 2] = _ik[2];
@@ -1033,6 +1068,8 @@ export class Character {
   checkGrip() {
     if (!this.hasSword) return;
     const p = this.rag.pts;
+    // Çift kılıçta bir el giderse o elin kılıcı düşer, kalan el tek kılıçla devam eder.
+    if (this.hasSword2 && (!p[J.LHAND].attached || !p[J.RHAND].attached)) this.game.dropSword2(this, !p[J.RHAND].attached);
     if (!p[J.LHAND].attached && !p[J.RHAND].attached) this.game.dropSword(this);
   }
 

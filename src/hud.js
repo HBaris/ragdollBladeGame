@@ -25,6 +25,7 @@ export class Hud {
         <button id="s-roof">Platform seviyesine git</button>
         <button id="s-horse">At seviyesine git</button>
         <button id="s-titan">Titan seviyesine git</button>
+        <button id="s-titanwar">Titan muharebesine git</button>
         <button id="s-close">Kapat</button>
       </div>`;
     this.lv = root.querySelector('#lv');
@@ -44,6 +45,7 @@ export class Hud {
     root.querySelector('#s-roof').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('roof'); });
     root.querySelector('#s-horse').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('horse'); });
     root.querySelector('#s-titan').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titan'); });
+    root.querySelector('#s-titanwar').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titanwar'); });
     this.bannerT = 0;
     this.flash = 0;
     this.resize();
@@ -174,7 +176,8 @@ export class Hud {
       let lines = input.touchMode
         ? ['Parmağını sürükle: kılıç o yöne döner', 'Az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES']
         : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
-      if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Sadece ENSESİ öldürür: 3 kez kes', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
+      if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Sadece ENSESİ öldürür: 3 darbe', 'Çift kılıç: iki bıçak da enseye sayılır', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
+      if (mode === 'titanwar') lines = ['Maviler dost: titanın bacaklarını keser', input.touchMode ? 'Kısa dokun: halat at · titana dokun: ona uç' : 'Tık / Boşluk: halat at · titana tıkla: ona uç', 'ENSESİNİ sen kes: çift kılıçla 2 dalış', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
       if (mode === 'horse') lines = ['Sürükle: at o yöne koşar, kılıç da', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'battle') lines = ['Maviler dost, morlar düşman', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'grid') lines = ['Parlayan karolardan uzak dur', 'Mavi halka ve pembe pistonlar havaya fırlatır', 'Kenardan boşluğa düşen ölür'];
