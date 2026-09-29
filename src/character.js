@@ -303,7 +303,10 @@ export class Character {
 
   // Havada: halat çeker, yerçekimi, hafif sürtünme; joystick biraz yön verir.
   moveAir(dt) {
-    const env = this.game.world, r = this.rope;
+    const env = this.game.world;
+    // Takıldığı titan öldüyse (ya da o parça koptuysa) halat bırakılır.
+    if (this.rope && this.rope.valid && !this.rope.valid()) this.rope = null;
+    const r = this.rope;
     this.low += (0 - this.low) * damp(5, dt);
     if (r) {
       const a = r.anchor();

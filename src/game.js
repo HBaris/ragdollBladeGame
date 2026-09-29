@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { clamp, lerp, rand, pick, damp, easeOutQuad, wrapAngle, loadNum, saveNum, segSeg, segOut, ptSeg, ptOut } from './util.js';
 import { Sfx } from './audio.js';
-import { J, MIN_CUT_LEN, sweepRagdoll, sweepBlade } from './ragdoll.js';
+import { J, MIN_CUT_LEN, sweepRagdoll, sweepBlade, sweepNeckZone } from './ragdoll.js';
 import { Character, BLADE_LEN, HORSE_BLADE_LEN, PLAYER_SPEED, TITAN_DAGGER } from './character.js';
 import { LooseSword, placeSword, BLADE_START, disposeSwordMesh } from './sword.js';
 import { Effects } from './effects.js';
@@ -23,6 +23,9 @@ const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Bat�
 // Düello ortamları: her tek seviye karanlık ızgara, arada diğerleri sırayla.
 const DUEL_ENVS = ['meadow', 'ice', 'dojo'];
 const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan', 'titanwar'];
+// Boyun darbe sayısı (son darbe keser). Son kesiş yeni bir dalış ister: iki bıçak aynı
+// dalışta hem son darbeyi vurup hem kesemez. Çift kılıçla temiz üç dalış.
+const TITAN_NECK_HP = 4, NECK_CUT_GAP = 0.8;
 const NPC_TITAN_CUT = 0.12; // müttefikin darbesi titanın uzvunu bu olasılıkla koparır (çoğu sıyırır)
 // Titan muharebesi takviyeleri: ilk 60 sn boyunca WAVE_GAP'te bir üçer kişi; sıra halatlı,
 // atlı, piyade karışık (~%30 halatlı, ~%30 atlı).
@@ -244,7 +247,7 @@ export class Game {
         });
       }
       const e = this.addChar(o);
-      if (e.titan) { this.titan = this.titan || e; this.titans.push(e); e.neckHp = 3; e.steamT = rand(5, 7) + i * 1.7; }
+      if (e.titan) { this.titan = this.titan || e; this.titans.push(e); e.neckHp = TITAN_NECK_HP; e.steamT = rand(5, 7) + i * 1.7; }
       if (type === 'cav') this.mountOn(e, 0x2b2522, 0x0f0c0b);
       this.enemies.push(e);
     });
@@ -321,6 +324,7 @@ export class Game {
     c.rope = {
       pt, pull: 44, release: 1.6, maxT: 2.2, t: 0, titan: true,
       anchor() { const q = rag.pts[idx]; pt.x = q.x; pt.y = q.y; pt.z = q.z; return pt; },
+      valid: () => t.alive && rag.pts[idx].attached,
     };
     if (c.y < c.gy + 0.05) { c.vy = Math.max(c.vy, 4.5); c.y = c.gy + 0.03; }
     if (this.near(c, 14)) Sfx.swoosh(2);
@@ -516,8 +520,9 @@ export class Game {
     const t = this.camTarget && this.camTarget.titan && this.camTarget.alive ? this.camTarget : this.titans.find((x) => x.alive);
     if (hit) {
       const rag = hit.t.rag, bone = hit.bone, pt = { x: hit.x, y: hit.y, z: hit.z };
+      const tt = hit.t;
       rope = {
-        pt, pull: 48, release: 1.6, maxT: 2.2, t: 0, titan: true,
+        pt, pull: 48, release: 1.6, maxT: 2.2, t: 0, titan: true, valid: () => tt.alive,
         anchor() {
           if (bone === 'head') { const h = rag.pts[J.HEAD]; pt.x = h.x; pt.y = h.y; pt.z = h.z; } else if (rag.bones.includes(bone)) {
             const A = rag.pts[bone.a], B = rag.pts[bone.b];
@@ -715,7 +720,10 @@ export class Game {
       const ep = a.curEp;
       if (!ep || (a.titan && !a.swingActive)) break;
       const hits = bi ? ep.hits2 : ep.hits;
-      if (o === a || hits.has(o)) continue;
+      // Titan dev: bir dalışta her bıçak onun farklı yerlerine (boyun, kol, bacak) birer kez
+      // değebilir; kalın göğüs dalışı yakmaz.
+      const big = o.titan && o.alive;
+      if (o === a || (!big && hits.has(o))) continue;
       if (!a.isPlayer && !o.alive) continue;
       if (a.isPlayer && !o.alive && o.side === 0) continue; // dost cesedini doğrama
       const bb = o.rag.bounds(this._bb);
@@ -730,8 +738,22 @@ export class Game {
           if (Math.random() < (o.isPlayer ? 0.4 : lerp(0.15, 0.45, o.skill))) { this.block(a, o, pt); break; }
         }
       }
-      const hit = sweepRagdoll(o.rag, pb, cb, 4);
+      // Titanın boyun bölgesi önceliklidir: bıçak oraya değdiyse göğse gömülmesi sayılmaz.
+      const hit = (big && sweepNeckZone(o.rag, pb, cb, 4)) || sweepRagdoll(o.rag, pb, cb, 4);
       if (!hit) continue;
+      if (big) {
+        const part = hit.head || hit.zone ? 'neck' : o.rag.bones[hit.bone].kind;
+        if (part === 'torso') {
+          // Kalın göğüs: bir kez "ÇOK KALIN" der, dalış boyuna devam eder.
+          if (!ep.thick) ep.thick = new Set();
+          if (ep.thick.has(o)) continue;
+          ep.thick.add(o);
+        } else {
+          const key = o.rag.id * 100 + (part === 'neck' ? 99 : hit.bone);
+          if (hits.has(key)) continue;
+          hits.add(key);
+        }
+      }
       // Düşman, oyuncunun vuruşunu kılıcıyla karşılayabilir (seviye arttıkça daha sık).
       // Arkadaşından gelen darbeyi beklemez.
       if (a.side !== o.side && !o.isPlayer && !o.titan && o.alive && o.hasSword && o.stun <= 0 && o.state !== 'attack' && o.state !== 'panic' && !ep.rolled.has(o)) {
@@ -744,7 +766,7 @@ export class Game {
           break;
         }
       }
-      hits.add(o);
+      if (!big) hits.add(o);
       hit.blade = bi;
       let vx = lerp(cb.bx - pb.bx, cb.tx - pb.tx, hit.t) / h;
       let vy = lerp(cb.by - pb.by, cb.ty - pb.ty, hit.t) / h;
@@ -890,7 +912,7 @@ export class Game {
     // Çift kılıçta her bıçağın ensede kendi bekleme süresi var: iki bıçak birden isabet
     // ederse bir dalışta iki darbe sayılır.
     const cdKey = hit.blade ? 'neckCd2' : 'neckCd';
-    const neckSafe = o.titan && (o.neckHp > 1 || this.time < (o[cdKey] || 0));
+    const neckSafe = o.titan && (o.neckHp > 1 || this.time < (o[cdKey] || 0) || this.time < (o.neckCutT || 0));
     // Müttefiklerin küçük kılıçları titanın bacağını çoğunlukla sadece sıyırır.
     const scratch = o.titan && !a.isPlayer && Math.random() > NPC_TITAN_CUT;
     const armored = wasAlive && ((o.armored && o.hp > 1) || (o.titan && (kind === 'torso' || (kind === 'neck' && (neckSafe || !a.isPlayer)) || scratch)));
@@ -898,7 +920,9 @@ export class Game {
     const res = armored ? null : this.applyCut(rag, hit);
     // Bu darbeyle yeni kopan el/ayak var mı (güdüğü tekrar kesmek sayılmaz)?
     const lost = [J.LHAND, J.RHAND, J.LFOOT, J.RFOOT].some((i, k) => ends[k] && !P[i].attached);
-    rag.addVel(vx * 0.2, vy * 0.2 + 0.6, vz * 0.2, this.h);
+    // Dev titan küçük bir kılıçla savrulmaz (her sıyırık bütün ragdoll'u, yerdeki kopuk
+    // parçaları dahil, itip göğe fırlatıyordu).
+    if (!o.titan) rag.addVel(vx * 0.2, vy * 0.2 + 0.6, vz * 0.2, this.h);
     this.gore(rag, res, hit, vx, vy, vz);
     const sm = hit.blade ? a.sword2Mesh : a.swordMesh;
     if (sm) {
@@ -924,34 +948,36 @@ export class Game {
   }
 
   // Titan: kolu, bacağı gitse de savaşır (bacaksızsa sürünür), gövdesi kesilmeyecek kadar
-  // kalın. Sadece ense (boyun ya da kafa) kesilince düşer.
+  // kalın. Sadece boyun bölgesi (önden ya da arkadan boyun, gırtlak, kafa) kesilince düşer.
   hitTitan(o, a, res, kind, vx, vy, vz, cdKey = 'neckCd') {
     if (res && res.kind === 'neck') { this.killEnemy(o, a, res, vx, vy, vz); return; }
     o.flash = 0.15;
     const y = o.rag.pts[J.NECK].y + 1;
     if (!a.isPlayer && !res) {
-      // Halatlı dost enseyi yarabilir ama son kesiş hep senin: ensesini 1 darbeye kadar indirir.
+      // Halatlı dost boynu yarabilir ama son kesiş hep senin: boynunu 1 darbeye kadar indirir.
       if (kind === 'neck' && a.flyer && o.neckHp > 1 && this.time > (o.neckCdAlly || 0)) {
         o.neckCdAlly = this.time + 1.5;
         o.neckHp--;
+        o.neckCutT = this.time + NECK_CUT_GAP;
         o.stun = Math.max(o.stun, 0.3);
         this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 20, 0.6, 5);
-        if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST ENSEYİ YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3); Sfx.slice(); }
+        if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST BOYNUNU YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3); Sfx.slice(); }
         return;
       }
       if (this.near(o, 14)) Sfx.thud(600);
       return;
     }
     if (kind === 'neck') {
-      // Enseye isabet ama kopmadı: titan sendeler, öfkelenir (hemen buhar üfler).
+      // Boyna isabet ama kopmadı: titan sendeler, öfkelenir (hemen buhar üfler).
       // Aynı bıçakla aynı dalışta ikinci kez sayılmaz.
-      if (this.time < (o[cdKey] || 0)) return;
+      if (this.time < (o[cdKey] || 0) || o.neckHp <= 1) return;
       o[cdKey] = this.time + 0.8;
       o.neckHp--;
+      o.neckCutT = this.time + NECK_CUT_GAP;
       o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
       o.steamT = Math.min(o.steamT, 1.0);
       this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 30, 0.6, 6);
-      this.fx.popup(o.x, y, o.z, `ENSE! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
+      this.fx.popup(o.x, y, o.z, `BOYUN! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
       this.slowmo(0.2, 0.3);
       this.shake(0.2);
       Sfx.slice();
@@ -961,7 +987,7 @@ export class Game {
       if (res.kind === 'arm') o.checkGrip();
       o.stun = 0.35; o.state = 'stagger'; this.cancelSwing(o);
       if (a.isPlayer || this.near(o, 25)) this.fx.popup(o.x, y, o.z, res.kind === 'leg' ? 'BACAĞI GİTTİ!' : 'KOLU GİTTİ!', '#ffd23f', 26, 1.2);
-      if (!this.titanHinted) { this.titanHinted = true; this.fx.popup(o.x, y - 1.6, o.z, 'Ölmedi! ENSESİNİ kes', '#fff', 20, 1.8); }
+      if (!this.titanHinted) { this.titanHinted = true; this.fx.popup(o.x, y - 1.6, o.z, 'Ölmedi! BOYNUNU kes', '#fff', 20, 1.8); }
       this.slowmo(0.15, 0.35);
       this.shake(0.15);
     } else {
@@ -1015,10 +1041,15 @@ export class Game {
   killEnemy(o, a, res, vx, vy, vz) {
     o.die();
     const h = this.h;
-    o.rag.addVel(vx * 0.45, vy * 0.3 + 2.5, vz * 0.45, h);
-    o.rag.addSpin(rand(-5, 5), rand(-3, 3), rand(-5, 5), h);
+    if (o.titan) {
+      // Titan kendi ağırlığıyla çöker: sadece gövdesine hafif bir itme, dönme yok.
+      o.rag.addVel(vx * 0.08, 1, vz * 0.08, h, o.rag.comp ? o.rag.comp[J.PELVIS] : undefined);
+    } else {
+      o.rag.addVel(vx * 0.45, vy * 0.3 + 2.5, vz * 0.45, h);
+      o.rag.addSpin(rand(-5, 5), rand(-3, 3), rand(-5, 5), h);
+    }
     const y = 2.2 * o.S;
-    if (o.titan) { this.fx.popup(o.x, 8, o.z, 'ENSESİ KESİLDİ! TİTAN DÜŞTÜ!', '#ffd23f', 30, 1.8); this.shake(0.3); }
+    if (o.titan) { this.fx.popup(o.x, 8, o.z, 'BOYNU KESİLDİ! TİTAN DÜŞTÜ!', '#ffd23f', 30, 1.8); this.shake(0.3); }
     const loud = !a || a.isPlayer || o.titan || this.near(o);
     if (!loud) { this.checkWin(); return; }
     if (res) {

@@ -14,6 +14,7 @@ export const J = {
   SPINE: 15, // bel: omurga buradan bükülür
 };
 export const JOINTS = 16;
+const VMAX = 45; // m/s: halatla uçan oyuncunun (30) üstünde, patlamaların altında
 // Kas sertliği ve sönüm çarpanları. Üst gövde (kafa, boyun, omuzlar) yumuşak ve az
 // sönümlü: hızlanınca, dönünce, durunca geride kalıp sallanır; kılıcı tutan eller onu
 // peşinden sürükler. Bacaklar sert kalır ki ayaklar yere bassın.
@@ -134,6 +135,10 @@ export class Ragdoll {
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       let vx = (p.x - p.px) * ratio, vy = (p.y - p.py) * ratio, vz = (p.z - p.pz) * ratio;
+      // Hız tavanı: dev titanın duruşu bir anda değişince (bacağı gidince) kaslar gövdeyi
+      // saniyede yüzlerce metreyle savurabiliyordu; o an kopan parça göğe uçuyordu.
+      const v2 = vx * vx + vy * vy + vz * vz, vm = VMAX * dt;
+      if (v2 > vm * vm) { const f = vm / Math.sqrt(v2); vx *= f; vy *= f; vz *= f; }
       p.px = p.x; p.py = p.y; p.pz = p.z;
       let ay = -GRAVITY;
       if (p.y < water) {
@@ -287,13 +292,19 @@ export class Ragdoll {
     }
   }
 
-  // w: açısal hız vektörü (rad/s), kütle merkezi etrafında.
+  // w: açısal hız vektörü (rad/s), gövdenin (pelvisin bağlı olduğu parçanın) kütle merkezi
+  // etrafında. Uzağa düşmüş kopuk parçalar dönmez: yoksa merkeze uzaklıklarıyla çarpılan hız
+  // onları fırlatır (dev titanda saniyede yüzlerce metre).
   addSpin(wx, wy, wz, dt) {
-    let cx = 0, cy = 0, cz = 0;
-    for (const p of this.pts) { cx += p.x; cy += p.y; cz += p.z; }
-    const n = this.pts.length;
+    const main = this.comp ? this.comp[J.PELVIS] : undefined;
+    const inMain = (i) => main === undefined || this.comp[i] === main;
+    let cx = 0, cy = 0, cz = 0, n = 0;
+    this.pts.forEach((p, i) => { if (inMain(i)) { cx += p.x; cy += p.y; cz += p.z; n++; } });
+    if (!n) return;
     cx /= n; cy /= n; cz /= n;
-    for (const p of this.pts) {
+    for (let i = 0; i < this.pts.length; i++) {
+      if (!inMain(i)) continue;
+      const p = this.pts[i];
       const rx = p.x - cx, ry = p.y - cy, rz = p.z - cz;
       p.px -= (wy * rz - wz * ry) * dt;
       p.py -= (wz * rx - wx * rz) * dt;
@@ -345,6 +356,33 @@ export function sweepRagdoll(rag, pb, cb, steps) {
     ptSeg(head.x, head.y, head.z, bx, by, bz, tx, ty, tz);
     if (ptOut.d2 < hr * hr && ptOut.d2 < bestD) best = { bone: -1, u: 0.5, t: ptOut.t, x: head.x, y: head.y, z: head.z, head: true };
     if (best) return best;
+  }
+  return null;
+}
+
+// Titanın boyun bölgesi: kafa, boyun ve göğsün boyuna yakın üst kısmı (gırtlak, köprücük,
+// ense kökü). Bıçak bu bölgeye süpürme boyunca herhangi bir anda değerse, daha derine
+// gömüldüğü kalın göğüs yerine burası sayılır: önden de arkadan da boyun kesilir.
+const COLLAR_U = 0.22;
+export function sweepNeckZone(rag, pb, cb, steps) {
+  const pts = rag.pts, head = pts[J.HEAD], hr = rag.d.headR;
+  const ni = rag.boneWith(J.HEAD), ti = rag.bones.findIndex((b) => b.kind === 'torso' && (b.a === J.NECK || b.b === J.NECK));
+  if (ni < 0 || !pts[J.HEAD].attached) return null;
+  for (let s = 1; s <= steps; s++) {
+    const f = s / steps;
+    const bx = lerp(pb.bx, cb.bx, f), by = lerp(pb.by, cb.by, f), bz = lerp(pb.bz, cb.bz, f);
+    const tx = lerp(pb.tx, cb.tx, f), ty = lerp(pb.ty, cb.ty, f), tz = lerp(pb.tz, cb.tz, f);
+    const nb = rag.bones[ni], A = pts[nb.a], B = pts[nb.b];
+    segSeg(bx, by, bz, tx, ty, tz, A.x, A.y, A.z, B.x, B.y, B.z);
+    if (segOut.d2 < (nb.r + 0.02) ** 2) return { bone: ni, u: segOut.t, t: segOut.s, x: lerp(A.x, B.x, segOut.t), y: lerp(A.y, B.y, segOut.t), z: lerp(A.z, B.z, segOut.t), head: false, zone: 'neck' };
+    ptSeg(head.x, head.y, head.z, bx, by, bz, tx, ty, tz);
+    if (ptOut.d2 < hr * hr) return { bone: -1, u: 0.5, t: ptOut.t, x: head.x, y: head.y, z: head.z, head: true, zone: 'neck' };
+    if (ti >= 0 && rag.bones[ti].vis) {
+      const tb = rag.bones[ti], C = pts[tb.a], D = pts[tb.b];
+      segSeg(bx, by, bz, tx, ty, tz, C.x, C.y, C.z, D.x, D.y, D.z);
+      const u = tb.a === J.NECK ? segOut.t : 1 - segOut.t;
+      if (u < COLLAR_U && segOut.d2 < (tb.r + 0.02) ** 2) return { bone: ni, u: 0.25, t: segOut.s, x: lerp(C.x, D.x, segOut.t), y: lerp(C.y, D.y, segOut.t), z: lerp(C.z, D.z, segOut.t), head: false, zone: 'collar' };
+    }
   }
   return null;
 }

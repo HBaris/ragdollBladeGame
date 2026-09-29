@@ -176,8 +176,8 @@ export class Hud {
       let lines = input.touchMode
         ? ['Parmağını sürükle: kılıç o yöne döner', 'Az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES']
         : ['WASD ya da fareyle sürükle: kılıç o yöne döner', 'Fareyle az it = yerinde çevir · çok it = koş', 'Hızlı çevir = KES'];
-      if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Sadece ENSESİ öldürür: 3 darbe', 'Çift kılıç: iki bıçak da enseye sayılır', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
-      if (mode === 'titanwar') lines = ['Maviler dost, ilk 60 sn arkandan dalga dalga gelir', 'Yeşilimsiler halatla uçar, enseyi yarar: son kesiş senin', input.touchMode ? 'Kısa dokun: halat at · titana dokun: ona uç' : 'Tık / Boşluk: halat at · titana tıkla: ona uç', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
+      if (mode === 'titan') lines = [input.touchMode ? 'Kısa dokun: halat at, uç' : 'Tıkla / Boşluk: halat at, uç', 'Titana dokun: ona halat at', 'Sadece BOYNU öldürür (önden de): 4 darbe', 'Çift kılıç: iki bıçak da boyna sayılır', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
+      if (mode === 'titanwar') lines = ['Maviler dost, ilk 60 sn arkandan dalga dalga gelir', 'Yeşilimsiler halatla uçar, boynu yarar: son kesiş senin', input.touchMode ? 'Kısa dokun: halat at · titana dokun: ona uç' : 'Tık / Boşluk: halat at · titana tıkla: ona uç', 'Ensesi tütünce uzaklaş: BUHAR savurur'];
       if (mode === 'horse') lines = ['Sürükle: at o yöne koşar, kılıç da', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'battle') lines = ['Maviler dost, morlar düşman', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'grid') lines = ['Parlayan karolardan uzak dur', 'Mavi halka ve pembe pistonlar havaya fırlatır', 'Kenardan boşluğa düşen ölür'];
