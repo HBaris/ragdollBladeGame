@@ -24,7 +24,7 @@ Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürü
 - **Kesmek için hızlı çevir.** Joystick'i bir yandan öbür yana hızlıca savurursan kılıç savrulur ve değdiği yeri keser. Yavaş dönen ya da düşmana uzatılmış kılıç kesmez, sadece iter.
 - **Kılıç fiziksel.** Kabzadan uca yaylı bir sarkaç gibi davranır: dururken gevşek tutulur (ucu yukarıda ama sarkar, adımlarla sallanır), koşarken sağ kalçada dik taşınır, savururken kollar gerilir ve kılıç sıkı takip eder, sonunda biraz kamçılanır. Sağdan sola ve soldan sağa savuruşlar biraz farklı yükseklikten geçer; savuruşa başlarken kılıç aşağı indiği için önündekine tepeden de iner.
 - Kesme, bıçağın ne kadar hızlı döndüğüyle ölçülür. Kolların savurmadığı, sadece sallanan kılıç ancak sert bir kamçıyla keser.
-- **Gövde gevşek.** Kafa, boyun ve omuzlar yumuşak yaylarla bağlı: hızlanınca, dururken ve dönerken geride kalıp sallanır (dururken ~20° öne, 90° dönüşte ~35° yana savrulur), koşarken iki adımda bir yalpalar. Kılıcı tutan eller gövdeyi peşinden sürükler.
+- **Gövde gevşek, omurga bükülür.** Gövde iki parça: karın ve göğüs, arada her yöne bükülüp burulan bir bel eklemi. Dururken sırt ~40° kamburdur; koşarken göğüs her adımda belden öne pompalar (bükülme 12–40°), durunca ve dönünce belden katlanıp savrulur. Kafa, boyun ve omuzlar öne/yana yumuşak yaylarla bağlı; dikeyde sıkı ki koşunun zıplaması onu belden kırmasın. Kılıcı tutan eller gövdeyi peşinden sürükler.
 - Titan seviyesinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
 - Yeniden başlat ve ses: sağ üstteki düğmeler (`R` · `M`).
 
@@ -77,8 +77,8 @@ npm run dev     # değişiklikte otomatik yeniden paketler
 
 | Dosya | İçerik |
 |---|---|
-| `src/ragdoll.js` | 3D Verlet ragdoll, kaslar (üst gövde yumuşak: `JOINT_K` / `JOINT_C`), kemik kesme, kılıç çarpışma testleri |
-| `src/pose.js` | Duruş/koşu/hamle pozları, bacaklar için ileri kinematik, kollar için IK |
+| `src/ragdoll.js` | 3D Verlet ragdoll: iki parçalı gövde (bel eklemi `J.SPINE`), kaslar (üst gövde yumuşak: `JOINT_K` / `JOINT_C` / `JOINT_KY`), kemik kesme, kılıç çarpışma testleri |
+| `src/pose.js` | Duruş/koşu/hamle pozları (`hunch`: belden kamburluk), bacaklar ve omurga için ileri kinematik, kollar için IK |
 | `src/character.js` | Oyuncu ve düşman: drift hareketi, duruş (çömelme), fiziksel kılıç (`simBlade`), düşmanın sanal joystick'i, halatla uçuş, ata binme |
 | `src/horse.js` | Binilebilir at: model, dörtnala animasyon, yönlendirme |
 | `src/view.js` | Jöle gövde ağları, oynak gözler, kırmızı kesitler |

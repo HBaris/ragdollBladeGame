@@ -48,6 +48,7 @@ export class Character {
     this.low = 0;               // duruş: 0 dik/koşu, 1 çömelmiş (kılıç yere iner)
     this.lowPref = true;        // düşman, attaki hedefe karşı çömelmez
     this.runK = 0;              // ne kadar koşuyor (0..1), kılıcın taşınışı için
+    this.pelvisPrev = { x: 0, y: 0, z: 0, ok: false };
     // Herkes biraz farklı koşsun: adım boyu ve yalpalama fazı.
     this.gait = rand(0.9, 1.12); this.gaitOff = rand(0, Math.PI * 2);
     this.launchT = 0;           // ızgarada karo fırlattıktan sonraki kısa süre
@@ -641,7 +642,8 @@ export class Character {
       const o = this.gaitOff;
       // Yalpalama iki adımda bir: üst gövdenin kendi salınımına yakın, o yüzden büyür.
       P.side += Math.sin(this.phase * 0.5 + o) * 0.16 * runK + Math.sin(this.t * 1.1 + o) * 0.05 * (1 - runK);
-      P.lean += Math.sin(this.phase * 2 + 0.6) * 0.07 * runK;
+      // Göğüs her adımda belden öne pompalar.
+      P.hunch += Math.sin(this.phase * 2 + 0.6) * 0.12 * runK;
       P.headP += Math.sin(this.phase * 2) * 0.09 * runK;
       // Drift: kayılan yöndeki bacak fren yapar, öbürü boşa çırpınır.
       if (this.slip > 0.02) blendPose(P, P, POSES.skid(_d, this.phase, this.slipDir), this.slip * 0.85);
@@ -661,7 +663,10 @@ export class Character {
       // Omuzlar kılıcın yönüne burulur (koşarken adımla da sallanır), hızlı savuruşta öne eğilir.
       const rel = wrapAngle(this.yaw - this.swYaw);
       P.twist = clamp(rel * 0.75, -1.1, 1.1) + Math.sin(this.phase) * 0.2 * this.runK;
-      P.lean += clamp(Math.abs(this.swW) / 15, 0, 1) * 0.15;
+      // Hızlı savuruşta göğüs belden kılıcın peşinden öne ve yana kıvrılır.
+      const sw = clamp(Math.abs(this.swW) / 15, 0, 1);
+      P.hunch += sw * 0.3;
+      P.side += clamp(-this.swW / 15, -1, 1) * 0.25;
     } else if (mode) {
       const tw = (a) => s.ux * Math.sin(a) * 0.55;
       if (mode === 1) { const e = easeInOut(s.t / s.wind); twist = tw(s.a0) * e; lunge = e * 0.5; }
@@ -671,16 +676,20 @@ export class Character {
       P.twist = twist;
       if (s.uy < -0.5 && mode === 2) P.lean += 0.25;
     }
-    if (this.hurtT > 0 || this.stun > 0) { P.lean = -0.25; P.headP = 0.3; }
-    if (this.state === 'cheer' && !this.isPlayer) { P.lean = -0.1; P.headP = -0.4; }
+    if (this.hurtT > 0 || this.stun > 0) { P.lean = -0.2; P.hunch = -0.15; P.headP = 0.3; }
+    if (this.state === 'cheer' && !this.isPlayer) { P.lean = -0.1; P.hunch = -0.1; P.headP = -0.4; }
     approachPose(this.pose, P, damp(mode === 2 || this.aimCtl ? 24 : 12, dt));
     poseFK(this.pose, this.d, this.local, this.footR, lm, phFixed);
     this.computeSword(dt);
     this.applyArms();
     this.localToWorld();
     const rag = this.rag, W = this.world;
+    // Kasların sönümü pelvisin gerçek hareketine göre (koşu zıplaması dahil) ölçülür.
+    const pi = J.PELVIS * 3, pp = this.pelvisPrev;
+    if (dt > 0 && pp.ok) rag.setVel((W[pi] - pp.x) / dt, (W[pi + 1] - pp.y) / dt, (W[pi + 2] - pp.z) / dt);
+    else rag.setVel(this.vx, this.vy, this.vz);
+    pp.x = W[pi]; pp.y = W[pi + 1]; pp.z = W[pi + 2]; pp.ok = true;
     rag.tgt.set(W);
-    rag.setVel(this.vx, this.vy, this.vz);
     const hold = this.hasSword;
     rag.pts[J.LHAND].pin = hold;
     rag.pts[J.RHAND].pin = hold;

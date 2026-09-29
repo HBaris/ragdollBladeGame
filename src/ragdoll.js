@@ -11,20 +11,26 @@ export const J = {
   RSH: 6, RELB: 7, RHAND: 8,
   LHIP: 9, LKNEE: 10, LFOOT: 11,
   RHIP: 12, RKNEE: 13, RFOOT: 14,
+  SPINE: 15, // bel: omurga buradan bükülür
 };
-export const JOINTS = 15;
+export const JOINTS = 16;
 // Kas sertliği ve sönüm çarpanları. Üst gövde (kafa, boyun, omuzlar) yumuşak ve az
 // sönümlü: hızlanınca, dönünce, durunca geride kalıp sallanır; kılıcı tutan eller onu
 // peşinden sürükler. Bacaklar sert kalır ki ayaklar yere bassın.
-const JOINT_K = [0.18, 0.1, 1.0, 0.12, 0.45, 0.8, 0.12, 0.45, 0.8, 1.0, 0.8, 1.1, 1.0, 0.8, 1.1];
-const JOINT_C = [0.32, 0.34, 1.0, 0.34, 1.0, 1.0, 0.34, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
-const JOINT_R = [0.14, 0.07, 0.14, 0.08, 0.06, 0.06, 0.08, 0.06, 0.06, 0.09, 0.08, 0.07, 0.09, 0.08, 0.07];
+const JOINT_K = [0.3, 0.35, 1.0, 0.35, 0.45, 0.8, 0.35, 0.45, 0.8, 1.0, 0.8, 1.1, 1.0, 0.8, 1.1, 1.0];
+const JOINT_C = [0.6, 0.9, 1.0, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+// Dikey sertlik çarpanı: üst gövde koşunun zıplamasını dikeyde sıkı takip eder (yoksa
+// ataletiyle belden katlanır), öne/yana salınım ise yumuşak kalır.
+const JOINT_KY = [3, 4, 1, 4, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1, 4];
+const JOINT_R = [0.14, 0.07, 0.14, 0.08, 0.06, 0.06, 0.08, 0.06, 0.06, 0.09, 0.08, 0.07, 0.09, 0.08, 0.07, 0.15];
 export const MIN_CUT_LEN = 0.12;
 const ITERS = 5;
 
-// a, b, yarıçap, tür. 'struct' kemikler görünmez ve kesilmez ama bağlantıyı taşır.
+// a, b, yarıçap, tür[, profil a, profil b]. 'struct' kemikler görünmez ve kesilmez ama
+// bağlantıyı taşır. Gövde iki parça: göğüs (boyun-bel) ve karın (bel-pelvis).
 const BONE_DEFS = [
-  [J.NECK, J.PELVIS, 0.17, 'torso'],
+  [J.NECK, J.SPINE, 0.17, 'torso', 1, 0.5],
+  [J.SPINE, J.PELVIS, 0.17, 'torso', 0.5, 0],
   [J.NECK, J.HEAD, 0.07, 'neck'],
   [J.NECK, J.LSH, 0, 'struct'],
   [J.NECK, J.RSH, 0, 'struct'],
@@ -49,8 +55,8 @@ export function dims(S) {
   };
 }
 
-function newPoint(x, y, z, r, k, c = 1) {
-  return { x, y, z, px: x, py: y, pz: z, r, k, c, im: 1, pin: false, attached: true, stump: false, stumpR: 0 };
+function newPoint(x, y, z, r, k, c = 1, ky = 1) {
+  return { x, y, z, px: x, py: y, pz: z, r, k, c, ky, im: 1, pin: false, attached: true, stump: false, stumpR: 0 };
 }
 
 let nextId = 1;
@@ -76,20 +82,25 @@ export class Ragdoll {
     this.cvx = 0; this.cvy = 0; this.cvz = 0;
     for (let i = 0; i < JOINTS; i++) {
       const x = world[i * 3], y = world[i * 3 + 1], z = world[i * 3 + 2];
-      this.pts.push(newPoint(x, y, z, JOINT_R[i] * S, JOINT_K[i], JOINT_C[i]));
+      this.pts.push(newPoint(x, y, z, JOINT_R[i] * S, JOINT_K[i], JOINT_C[i], JOINT_KY[i]));
       this.tgt[i * 3] = x; this.tgt[i * 3 + 1] = y; this.tgt[i * 3 + 2] = z;
     }
     this.pts[J.HEAD].r = this.d.headR;
     this.pts[J.HEAD].im = 0.8;
     this.pts[J.PELVIS].pin = true;
-    for (const [a, b, r, kind] of BONE_DEFS) this.addBone(a, b, r * S, kind);
-    // Gövdeyi burulmaya karşı sertleştiren görünmez çaprazlar.
-    this.addAux(J.LSH, J.PELVIS, false);
-    this.addAux(J.RSH, J.PELVIS, false);
-    this.addAux(J.LHIP, J.NECK, false);
-    this.addAux(J.RHIP, J.NECK, false);
+    for (const [a, b, r, kind, sa, sb] of BONE_DEFS) this.addBone(a, b, r * S, kind, sa, sb);
+    // Göğüs (omuzlar-boyun-bel) ve karın (kalçalar-pelvis-bel) kendi içinde sağlam; bel
+    // ise bilye eklem gibi her yöne bükülür ve burulur. Sırtın tamamen katlanmasını sadece
+    // "en az" kısıtları önler.
+    this.addAux(J.LSH, J.SPINE, false);
+    this.addAux(J.RSH, J.SPINE, false);
+    this.addAux(J.LHIP, J.SPINE, false);
+    this.addAux(J.RHIP, J.SPINE, false);
+    this.addAux(J.NECK, J.PELVIS, true, 0.8);
+    this.addAux(J.LSH, J.PELVIS, true, 0.78);
+    this.addAux(J.RSH, J.PELVIS, true, 0.78);
     // Kafa gövdeye/omuzlara gömülmesin.
-    this.addAux(J.HEAD, J.PELVIS, true, 0.85);
+    this.addAux(J.HEAD, J.PELVIS, true, 0.8);
     this.addAux(J.HEAD, J.LSH, true, 0.9);
     this.addAux(J.HEAD, J.RSH, true, 0.9);
     this.updateConnectivity();
@@ -97,9 +108,8 @@ export class Ragdoll {
 
   // sa/sb: kemiğin a ve b uçlarının profil parametresi (görünüm kalınlık profili için;
   // kesilince her parça profilin kendi aralığını taşır).
-  addBone(a, b, r, kind) {
+  addBone(a, b, r, kind, sa = 0, sb = 1) {
     const A = this.pts[a], B = this.pts[b];
-    const sa = kind === 'torso' ? 1 : 0, sb = kind === 'torso' ? 0 : 1;
     this.bones.push({ a, b, r, kind, sa, sb, len: Math.hypot(B.x - A.x, B.y - A.y, B.z - A.z), vis: kind !== 'struct', part: a * 100 + b });
   }
 
@@ -138,7 +148,7 @@ export class Ragdoll {
         if (m > 0) {
           const k = k0 * p.k, c = c0 * p.c;
           const ax = (tx - p.x) * k - (vx * inv - this.cvx) * c;
-          ay += (ty - p.y) * k - (vy * inv - this.cvy) * c;
+          ay += (ty - p.y) * k * p.ky - (vy * inv - this.cvy) * c * Math.sqrt(p.ky);
           const az = (tz - p.z) * k - (vz * inv - this.cvz) * c;
           p.x += vx + ax * dt2; p.y += vy + ay * dt2; p.z += vz + az * dt2;
           continue;

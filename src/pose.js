@@ -1,9 +1,11 @@
 import { J } from './ragdoll.js';
 
 // Poz parametreleri. Yerel eksenler: x sağ, y yukarı, z ileri; orijin pelvisin altındaki zemin.
-// lean: gövde öne eğim, twist: omuzların sağa dönüşü, side: yana eğim, headP: baş eğimi,
-// lP/rP: uyluk öne açısı, lB/rB: diz bükümü, lS/rS: bacak açıklığı, bob: pelvis sekmesi.
-export const POSE_KEYS = ['lean', 'twist', 'side', 'headP', 'lP', 'lB', 'lS', 'rP', 'rB', 'rS', 'bob'];
+// lean: karnın (alt gövde) öne eğimi, hunch: göğsün bunun üstüne ek eğimi (kamburluk,
+// omurga belden bükülür), twist: omuzların sağa dönüşü, side: yana eğim (göğüste tam,
+// karında az), headP: baş eğimi, lP/rP: uyluk öne açısı, lB/rB: diz bükümü,
+// lS/rS: bacak açıklığı, bob: pelvis sekmesi.
+export const POSE_KEYS = ['lean', 'hunch', 'twist', 'side', 'headP', 'lP', 'lB', 'lS', 'rP', 'rB', 'rS', 'bob'];
 
 export function makePose() {
   const o = {};
@@ -17,7 +19,7 @@ export function approachPose(cur, tgt, f) { for (const k of POSE_KEYS) cur[k] +=
 export const POSES = {
   // Geniş, çömelmiş kılıç duruşu (ekran görüntülerindeki gibi).
   guard(o, t) {
-    o.lean = 0.34; o.twist = 0; o.side = 0; o.headP = -0.3;
+    o.lean = 0.2; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.3;
     o.lP = 0.62; o.lB = 1.15; o.lS = 0.34;
     o.rP = 0.28; o.rB = 0.95; o.rS = 0.3;
     o.bob = Math.sin(t * 2.4) * 0.012;
@@ -26,7 +28,7 @@ export const POSES = {
   // Gevşek, kambur, alçak duruş: dizler iyice kırık, gövde öne yatık, kafa öne uzanmış.
   // Dururken (ya da sadece kılıcı çevirirken) bu duruşa çöker; kılıç buradan yere iner.
   crouch(o, t) {
-    o.lean = 0.62; o.twist = 0; o.side = 0.06 * Math.sin(t * 1.3); o.headP = -0.55;
+    o.lean = 0.4; o.hunch = 0.6 + 0.06 * Math.sin(t * 2.2); o.twist = 0; o.side = 0.08 * Math.sin(t * 1.3); o.headP = -0.55;
     o.lP = 1.05; o.lB = 1.95; o.lS = 0.42;
     o.rP = 0.8; o.rB = 1.85; o.rS = 0.38;
     o.bob = Math.sin(t * 2.2) * 0.02;
@@ -35,7 +37,7 @@ export const POSES = {
   // Abartılı koşu: öne yatık gövde, yüksek dizler, zıplayan pelvis.
   run(o, ph) {
     const s = Math.sin(ph);
-    o.lean = 0.44; o.twist = -s * 0.16; o.side = 0; o.headP = -0.32;
+    o.lean = 0.22; o.hunch = 0.72; o.twist = -s * 0.16; o.side = 0; o.headP = -0.32;
     o.lP = 0.2 + 0.92 * s;
     o.lB = 0.3 + 1.5 * Math.max(0, Math.cos(ph + 0.5));
     o.rP = 0.2 - 0.92 * s;
@@ -46,7 +48,7 @@ export const POSES = {
   },
   // Hızını alamayıp dizüstü kayma: ön ayak ileride fren, arka diz yerde, gövde öne.
   kneel(o) {
-    o.lean = 0.38; o.twist = 0; o.side = 0; o.headP = -0.2;
+    o.lean = 0.25; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.2;
     o.lP = 1.2; o.lB = 1.3; o.lS = 0.18;
     o.rP = -0.25; o.rB = 1.9; o.rS = 0.15;
     o.bob = -0.06;
@@ -54,7 +56,7 @@ export const POSES = {
   },
   // Saldırı adımı: sol ayak önde, sağ ayak geride.
   lunge(o) {
-    o.lean = 0.4; o.side = 0; o.headP = -0.3;
+    o.lean = 0.3; o.hunch = 0.3; o.side = 0; o.headP = -0.3;
     o.lP = 0.85; o.lB = 1.0; o.lS = 0.22;
     o.rP = -0.45; o.rB = 0.35; o.rS = 0.2;
     o.bob = -0.02;
@@ -64,7 +66,7 @@ export const POSES = {
   // boşa çırpınır, gövde ters yana yatar.
   skid(o, ph, dir) {
     const s = Math.sin(ph * 1.7);
-    o.lean = 0.12; o.twist = 0; o.side = 0.4 * dir; o.headP = -0.1;
+    o.lean = 0.12; o.hunch = 0.2; o.twist = 0; o.side = 0.4 * dir; o.headP = -0.1;
     const bP = 0.25, bB = 0.12, bS = 0.62;
     const fP = 0.55 + 0.45 * s, fB = 1.3 + 0.3 * Math.cos(ph * 1.7), fS = -0.12;
     if (dir > 0) { o.rP = bP; o.rB = bB; o.rS = bS; o.lP = fP; o.lB = fB; o.lS = fS; }
@@ -75,7 +77,7 @@ export const POSES = {
   // Tek bacakla sekme: kalan bacak gövdenin altında, sekerek ilerler.
   hop(o, ph, moving) {
     const s = Math.abs(Math.sin(ph));
-    o.lean = 0.3; o.twist = 0; o.side = 0; o.headP = -0.25;
+    o.lean = 0.2; o.hunch = 0.3; o.twist = 0; o.side = 0; o.headP = -0.25;
     o.lP = 0.15 + (moving ? 0.25 * Math.sin(ph) : 0); o.lB = 0.35 + (moving ? 0.5 * s : 0); o.lS = 0.05;
     o.rP = o.lP; o.rB = o.lB; o.rS = 0.05;
     o.bob = moving ? s * 0.13 : Math.sin(ph) * 0.01;
@@ -84,7 +86,7 @@ export const POSES = {
   // Bacaksız: güdüklerle itinerek sürünür.
   stumps(o, ph, moving) {
     const s = Math.sin(ph);
-    o.lean = 0.5; o.twist = 0; o.side = 0; o.headP = -0.45;
+    o.lean = 0.35; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.45;
     o.lP = 0.3 + (moving ? 0.7 * s : 0); o.lB = 0; o.lS = 0.2;
     o.rP = 0.3 - (moving ? 0.7 * s : 0); o.rB = 0; o.rS = 0.2;
     o.bob = moving ? Math.abs(s) * 0.1 : 0;
@@ -92,14 +94,14 @@ export const POSES = {
   },
   // At sırtında: uyluklar öne ve iki yana açık, baldırlar aşağı sarkık.
   ride(o, ph) {
-    o.lean = 0.12; o.twist = 0; o.side = 0; o.headP = -0.1;
+    o.lean = 0.12; o.hunch = 0.25; o.twist = 0; o.side = 0; o.headP = -0.1;
     o.lP = 0.95; o.lB = 1.55; o.lS = 1.15;
     o.rP = 0.95; o.rB = 1.55; o.rS = 1.15;
     o.bob = Math.sin(ph) * 0.03;
     return o;
   },
   air(o) {
-    o.lean = 0.1; o.twist = 0; o.side = 0; o.headP = 0.1;
+    o.lean = 0.1; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = 0.1;
     o.lP = 1.0; o.lB = 1.6; o.lS = 0.25;
     o.rP = 0.4; o.rB = 1.4; o.rS = 0.25;
     o.bob = 0;
@@ -123,12 +125,12 @@ function leg(out, iHip, iKnee, iFoot, hx, hy, hz, p, b, a, d) {
 
 const _v = [0, 0, 0];
 // Gövde dönüşü: önce öne eğim (x ekseni), sonra yana eğim (z), sonra burulma (y).
-function torsoRot(P, x, y, z) {
-  let c = Math.cos(P.lean), s = Math.sin(P.lean);
+function rotV(lean, side, twist, x, y, z) {
+  let c = Math.cos(lean), s = Math.sin(lean);
   const y1 = y * c - z * s, z1 = y * s + z * c;
-  c = Math.cos(P.side); s = Math.sin(P.side);
+  c = Math.cos(side); s = Math.sin(side);
   const x2 = x * c - y1 * s, y2 = x * s + y1 * c;
-  c = Math.cos(P.twist); s = Math.sin(P.twist);
+  c = Math.cos(twist); s = Math.sin(twist);
   _v[0] = x2 * c + z1 * s; _v[1] = y2; _v[2] = -x2 * s + z1 * c;
   return _v;
 }
@@ -143,15 +145,23 @@ export function poseFK(P, d, out, footR, legMask = 3, phFixed = null) {
   if (legMask & 2) drop = Math.max(drop, legDrop(P.rP, P.rB, aR, d));
   const ph = (phFixed !== null ? phFixed : drop + footR) + P.bob;
   put(out, J.PELVIS, 0, ph, 0);
-  let v = torsoRot(P, 0, d.spine, 0);
-  const nx = v[0], ny = ph + v[1], nz = v[2];
+  // Omurga iki parça: karın pelvisten bele (lean), göğüs belden boyna (lean + hunch).
+  // Yana eğim ve burulma çoğunlukla göğüste: sırt yay gibi kıvrılır.
+  const half = d.spine * 0.5, up = P.lean + P.hunch;
+  let v = rotV(P.lean, P.side * 0.4, P.twist * 0.25, 0, half, 0);
+  const bx = v[0], by = ph + v[1], bz = v[2];
+  put(out, J.SPINE, bx, by, bz);
+  v = rotV(up, P.side, P.twist, 0, half, 0);
+  const nx = bx + v[0], ny = by + v[1], nz = bz + v[2];
   put(out, J.NECK, nx, ny, nz);
-  const ch = Math.cos(P.headP), sh = Math.sin(P.headP);
-  v = torsoRot(P, 0, d.neck * ch, d.neck * sh + 0.03 * d.neck);
+  // Kafa kamburluğu telafi eder: göğüs eğilse de öne bakar.
+  const hp = P.headP - 0.8 * P.hunch;
+  const ch = Math.cos(hp), sh = Math.sin(hp);
+  v = rotV(up, P.side, P.twist, 0, d.neck * ch, d.neck * sh + 0.03 * d.neck);
   put(out, J.HEAD, nx + v[0], ny + v[1], nz + v[2]);
-  v = torsoRot(P, -d.shW, -0.03, 0);
+  v = rotV(up, P.side, P.twist, -d.shW, -0.03, 0);
   put(out, J.LSH, nx + v[0], ny + v[1], nz + v[2]);
-  v = torsoRot(P, d.shW, -0.03, 0);
+  v = rotV(up, P.side, P.twist, d.shW, -0.03, 0);
   put(out, J.RSH, nx + v[0], ny + v[1], nz + v[2]);
   for (const [iS, iE, iH, sx] of [[J.LSH, J.LELB, J.LHAND, -1], [J.RSH, J.RELB, J.RHAND, 1]]) {
     const x = out[iS * 3], y = out[iS * 3 + 1], z = out[iS * 3 + 2];

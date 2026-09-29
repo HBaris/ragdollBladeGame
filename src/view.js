@@ -169,7 +169,9 @@ export class CharacterView {
       _d.multiplyScalar(1 / len);
       m.position.set(A.x, A.y, A.z);
       if (b.kind === 'torso') {
-        const upper = comp[b.a] === comp[J.NECK] || comp[b.b] === comp[J.NECK];
+        // Göğüs omuz çizgisine, karın kalça çizgisine göre döner (bel burulabilir).
+        const belly = b.part === J.SPINE * 100 + J.PELVIS;
+        const upper = !belly && (comp[b.a] === comp[J.NECK] || comp[b.b] === comp[J.NECK]);
         basisFrom(_d, upper ? this.lateral : _b, m.quaternion);
       } else m.quaternion.setFromUnitVectors(Y, _d);
     }
