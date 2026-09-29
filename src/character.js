@@ -24,6 +24,10 @@ const SLIDE_MIN = 0.07;        // bu eğimin altında zemin kaydırmaz
 const TITAN_LOW = [[0, -1], [0.7, -0.7], [-0.7, -0.7]];
 const TITAN_HIGH = [[0.8, 0.6], [-0.8, 0.6], [0, 1]];
 const _sad = { x: 0, y: 0, z: 0 };
+// Her savuruşun rastgele yüksekliği (radyan, eksi = aşağı): çoğu alçaktan geçer.
+const SWING_BIAS = [-0.45, -0.35, -0.2, -0.1, 0, 0.1, 0.25];
+// Titreyen eklemler: [eklem, genlik çarpanı, hız çarpanı].
+const JIG = [[J.HEAD, 1.3, 1.7], [J.NECK, 1, 1.3], [J.SPINE, 0.8, 1.1], [J.LSH, 1, 2.1], [J.RSH, 1, 1.9], [J.LKNEE, 1.6, 2.5], [J.RKNEE, 1.6, 2.3]];
 const _tm = { vy: 0, px: 0, pz: 0 };
 
 const _a = makePose(), _b = makePose(), _c = makePose(), _d = makePose(), _e = makePose();
@@ -49,6 +53,7 @@ export class Character {
     this.lowPref = true;        // düşman, attaki hedefe karşı çömelmez
     this.runK = 0;              // ne kadar koşuyor (0..1), kılıcın taşınışı için
     this.pelvisPrev = { x: 0, y: 0, z: 0, ok: false };
+    this.swingBias = 0; this.swinging = false; this.lowSwing = 0;
     // Herkes biraz farklı koşsun: adım boyu ve yalpalama fazı.
     this.gait = rand(0.9, 1.12); this.gaitOff = rand(0, Math.PI * 2);
     this.launchT = 0;           // ızgarada karo fırlattıktan sonraki kısa süre
@@ -318,7 +323,7 @@ export class Character {
     const dx = tg.x - this.x, dz = tg.z - this.z;
     const dist = Math.hypot(dx, dz) || 1;
     const toT = Math.atan2(dx, dz);
-    const set = (a, m) => { this.aimA = wrapAngle(a); st.x = Math.sin(a); st.z = Math.cos(a); st.mag = m; };
+    const set = (a, m) => { this.aimA = wrapAngle(a); const b = a + this.aimNoise(); st.x = Math.sin(b); st.z = Math.cos(b); st.mag = m; };
     const turnTo = (a, rate, m) => set(angApproach(this.aimA, a, rate * dt), m);
     st.mag = 0;
     // Uzun düşman eğilip göğse, kısa olan (ya da attaki hedefe) yukarı savurur: boy farkı
@@ -373,6 +378,12 @@ export class Character {
     }
   }
 
+  // Düşmanın eli titrek: hedefi tam tutturamaz, savuruşları biraz savruk (usta olan daha az).
+  aimNoise() {
+    const t = this.t, o = this.gaitOff;
+    return (0.2 * Math.sin(t * 1.7 + o) + 0.1 * Math.sin(t * 4.3 + o * 2)) * (1.2 - 0.6 * this.skill);
+  }
+
   // Hedefin etrafında diğer düşmanlardan açısal olarak uzaklaşma isteği.
   spread(tg, dx, dz) {
     const my = Math.atan2(-dx, -dz);
@@ -422,7 +433,7 @@ export class Character {
     if (!p) { this.state = 'fight'; return; }
     p.t += dt;
     p.base = angApproach(p.base, toT, track * dt);
-    const set = (a, m) => { this.aimA = wrapAngle(a); st.x = Math.sin(a); st.z = Math.cos(a); st.mag = m; };
+    const set = (a, m) => { this.aimA = wrapAngle(a); const b = a + this.aimNoise(); st.x = Math.sin(b); st.z = Math.cos(b); st.mag = m; };
     if (p.kind === 'spin') {
       if (p.t < p.dur) set(p.base + p.side * 10 * p.t, 0.3);
       else if (p.t < p.dur + p.rec) set(angApproach(this.aimA, toT, 5 * dt), 0.25);
@@ -663,6 +674,9 @@ export class Character {
       // Omuzlar kılıcın yönüne burulur (koşarken adımla da sallanır), hızlı savuruşta öne eğilir.
       const rel = wrapAngle(this.yaw - this.swYaw);
       P.twist = clamp(rel * 0.75, -1.1, 1.1) + Math.sin(this.phase) * 0.2 * this.runK;
+      // Alçak savuruşta gövde kılıcın peşinden yere eğilir, dizler kırılır.
+      const ls = this.lowSwing;
+      P.hunch += 0.3 * ls; P.lB += 0.35 * ls; P.rB += 0.35 * ls; P.lP += 0.2 * ls; P.rP += 0.1 * ls;
       // Hızlı savuruşta göğüs belden kılıcın peşinden öne ve yana kıvrılır.
       const sw = clamp(Math.abs(this.swW) / 15, 0, 1);
       P.hunch += sw * 0.3;
@@ -680,6 +694,7 @@ export class Character {
     if (this.state === 'cheer' && !this.isPlayer) { P.lean = -0.1; P.hunch = -0.1; P.headP = -0.4; }
     approachPose(this.pose, P, damp(mode === 2 || this.aimCtl ? 24 : 12, dt));
     poseFK(this.pose, this.d, this.local, this.footR, lm, phFixed);
+    if (this.aimCtl) this.jiggle();
     this.computeSword(dt);
     this.applyArms();
     this.localToWorld();
@@ -693,6 +708,18 @@ export class Character {
     const hold = this.hasSword;
     rag.pts[J.LHAND].pin = hold;
     rag.pts[J.RHAND].pin = hold;
+  }
+
+  // Omurgasız jöle: eklem hedefleri hiç durmadan hafifçe kayar; hiçbir duruş net kalmaz.
+  jiggle() {
+    const L = this.local, t = this.t, o = this.gaitOff;
+    const amp = (0.03 + 0.03 * this.runK) * this.S;
+    for (const [i, a, f] of JIG) {
+      const k = i * 3, ph = o + i * 1.7;
+      L[k] += Math.sin(t * f * 2.1 + ph) * amp * a;
+      L[k + 1] += Math.sin(t * f * 1.3 + ph * 1.3) * amp * a * 0.5;
+      L[k + 2] += Math.sin(t * f * 1.7 + ph * 0.7) * amp * a;
+    }
   }
 
   // Kılıcın yerel kabza konumu / hedef yönü; sonra dünya, fiziksel uç ve bıçak parçası.
@@ -725,8 +752,15 @@ export class Character {
       const spd = this.flying ? 1 : clamp(Math.abs(this.swW) / 6, 0, 1);
       const lo = this.mount ? 0 : this.low, run = this.runK;
       const restP = lerp(lerp(0.75, 1.0, run), 0.62, lo);
-      const swingP = (this.mount ? -0.35 : lerp(-0.1, -0.46, lo)) + 0.12 * Math.sign(this.swW);
-      const pitch = lerp(restP, swingP, spd) + this.pitchAdj;
+      // Her savuruş rastgele bir yükseklikten geçer (biraz tesadüf); joystick az itilmişse
+      // koşarken de alçaktan (biraz bilerek).
+      const aw = Math.abs(this.swW);
+      if (aw > 2.5 && !this.swinging) { this.swinging = true; this.swingBias = pick(SWING_BIAS); }
+      else if (aw < 1) this.swinging = false;
+      const lowMag = clamp((0.8 - this.stickW.mag) / 0.5, 0, 1);
+      const swingP = (this.mount ? -0.35 : lerp(-0.1, -0.46, Math.max(lo, lowMag * 0.8))) + this.swingBias + 0.12 * Math.sign(this.swW);
+      const pitch = Math.max(-0.8, lerp(restP, swingP, spd) + this.pitchAdj);
+      this.lowSwing = spd * clamp((-0.1 - swingP) / 0.45, 0, 1);
       const sr = Math.sin(rel), cr = Math.cos(rel), cp = Math.cos(pitch);
       d[0] = sr * cp; d[1] = Math.sin(pitch); d[2] = cr * cp;
       w[0] = cr; w[1] = 0; w[2] = -sr;
@@ -734,7 +768,7 @@ export class Character {
       const reach = (0.3 + spd * (0.12 + 0.18 * lo)) * S;
       const bob = Math.sin(this.phase * 2) * 0.045 * S * run;
       g[0] = cx + sr * reach + 0.07 * S * run * (1 - spd);
-      g[1] = cy - lerp(0.12, 0.3, lo) * S + bob;
+      g[1] = cy - lerp(0.12, 0.3, lo) * S + bob - 0.18 * S * this.lowSwing;
       g[2] = cz - 0.1 * S + cr * reach;
     } else if (this.blockT > 0 && !mode) {
       // Blok: gelen kılıca dik tut. Dikey savuruşa yatay, yatay savuruşa dikey.

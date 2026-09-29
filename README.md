@@ -19,11 +19,13 @@ Tek kontrol **joystick**. Parmağını ekranın herhangi bir yerine koyup sürü
 
 - **Yön = kolların ve kılıcın baktığı yer.** İleri itersen kılıcı öne tutar, sağa çekersen kollar ve kılıç sağa döner. Gövde arkadan gelir.
 - **Az itersen** yerinde durup sadece kılıcı çevirir. **Çok itersen** o yöne koşar.
-- **Dururken çömelirsin.** Kambur, dizleri kırık bir duruş. Bu duruşta savuruş **bacak hizasından** geçer, kılıcın ucu yeri sıyırır (kıvılcım): rakibin bacaklarını böyle kesersin. Koşarken savuruş bel hizasındadır. Tam hızdan bırakıp dizüstü kayarken de alçaktan kesersin.
+- **Alçaktan kesmek:** dururken çömelirsin; bu duruşta savuruş **bacak hizasından** geçer, kılıcın ucu yeri sıyırır (kıvılcım). Koşarken de joystick'i **az iterek** savurursan alçaktan geçer; çok iterek savurursan bel hizasından. Tam hızdan bırakıp dizüstü kayarken de alçaktan kesersin.
+- **Biraz tesadüf:** her savuruş rastgele bir yükseklikten geçer (çoğu alçak, bazısı boyun hizası). Alçak savuruşta gövde kılıcın peşinden yere eğilir, dizler kırılır.
 - **Koşu hızlı ve drift eder (7 m/s).** Düz koşarken düz gidersin, ama hızlıyken yön değiştirirsen gövde hemen döner, sen savrulmaya devam edersin: bir ayak fren yapar, öbürü boşa çırpınır. Tam hızda 90° dönüşte ~6 m, geri dönüşte ~4 m kayarsın. Tam hızdayken bırakırsan hızını alamaz, dizüstü kayarsın. Yavaşken çeviksin.
 - **Kesmek için hızlı çevir.** Joystick'i bir yandan öbür yana hızlıca savurursan kılıç savrulur ve değdiği yeri keser. Yavaş dönen ya da düşmana uzatılmış kılıç kesmez, sadece iter.
 - **Kılıç fiziksel.** Kabzadan uca yaylı bir sarkaç gibi davranır: dururken gevşek tutulur (ucu yukarıda ama sarkar, adımlarla sallanır), koşarken sağ kalçada dik taşınır, savururken kollar gerilir ve kılıç sıkı takip eder, sonunda biraz kamçılanır. Sağdan sola ve soldan sağa savuruşlar biraz farklı yükseklikten geçer; savuruşa başlarken kılıç aşağı indiği için önündekine tepeden de iner.
 - Kesme, bıçağın ne kadar hızlı döndüğüyle ölçülür. Kolların savurmadığı, sadece sallanan kılıç ancak sert bir kamçıyla keser.
+- **Omurgasız, jöle gibi.** Kalça çivili değil, güçlü bir yayla kontrolcüyü izler: vurulunca, zıplayınca bütün gövde sarsılır. Bacaklar gevşek, dizler hiç tam açılmaz, bacaklar yana açık ve adımda içe-dışa sallanır. Kafa, boyun, bel, omuzlar ve dizler hiç durmadan hafifçe titrer; hiçbir duruş net kalmaz.
 - **Gövde gevşek, omurga bükülür.** Gövde iki parça: karın ve göğüs, arada her yöne bükülüp burulan bir bel eklemi. Dururken sırt ~40° kamburdur; koşarken göğüs her adımda belden öne pompalar (bükülme 12–40°), durunca ve dönünce belden katlanıp savrulur. Kafa, boyun ve omuzlar öne/yana yumuşak yaylarla bağlı; dikeyde sıkı ki koşunun zıplaması onu belden kırmasın. Kılıcı tutan eller gövdeyi peşinden sürükler.
 - Titan seviyesinde **kısa dokunuş** (bilgisayarda tık ya da `Boşluk`) halat atar.
 - Yeniden başlat ve ses: sağ üstteki düğmeler (`R` · `M`).
@@ -43,7 +45,7 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Bir kolun giderse kılıcı öbür elinle tutarsın.
   - **İki kolun giderse ya da kafan giderse ölürsün.** Sol üstteki küçük vücut şeması kopan uzuvlarını kırmızı gösterir.
 - **Kesme:** Kılıç bir kemiğe değdiği yerden onu ikiye böler. **Sıradan rakip tek vuruşta ölür** (kol dahil); boss 3 darbeye dayanır.
-- **Rakipler de senin gibi oynar.** Onların da tek bir sanal joystick'i var: kılıç koştukları yöne bakar, drift ederler, kesmek için kılıcı bir yana yavaşça çekip (bunu görürsün) hızla öbür yana savururlar. Usta olanlar koşarken savurur, bazen topaç gibi döner. Uzun boylu rakip kılıcını senin göğüs hizana eğer.
+- **Rakipler de senin gibi oynar.** Onların da tek bir sanal joystick'i var: kılıç koştukları yöne bakar, drift ederler, kesmek için kılıcı bir yana yavaşça çekip (bunu görürsün) hızla öbür yana savururlar. Usta olanlar koşarken savurur, bazen topaç gibi döner. Uzun boylu rakip kılıcını senin göğüs hizana eğer. Elleri titrek: hedefi tam tutturamazlar (acemiler daha çok şaşırır), savuruşları da seninki gibi rastgele yükseklikten geçer.
 - **Dost ateşi:** Rakiplerin kılıcı yolundaki arkadaşını da keser (**DOST ATEŞİ!**). Kesilen bazen kin tutup ona saldırır (**HEY!**). Dikkatli olanlar arkadaşı yoldaysa bekler, ama her zaman değil.
 - **Savunma:** Kılıçlar çarpışır (**KLANG!**, **BLOK!**). Rakipler seviye ilerledikçe daha sık bloklar, geri sıçrar, karşı saldırı yapar ve seni çevreler.
 - **At seviyesi:** Geniş yeşil alanda atın sırtındasın.

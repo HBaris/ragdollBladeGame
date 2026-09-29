@@ -38,11 +38,12 @@ export const POSES = {
   run(o, ph) {
     const s = Math.sin(ph);
     o.lean = 0.22; o.hunch = 0.72; o.twist = -s * 0.16; o.side = 0; o.headP = -0.32;
-    o.lP = 0.2 + 0.92 * s;
-    o.lB = 0.3 + 1.5 * Math.max(0, Math.cos(ph + 0.5));
-    o.rP = 0.2 - 0.92 * s;
-    o.rB = 0.3 + 1.5 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
-    o.lS = 0.1; o.rS = 0.1;
+    // Dizler hiç tam açılmaz, bacaklar yana açık ve adımda içe-dışa sallanır.
+    o.lP = 0.2 + 0.78 * s;
+    o.lB = 0.8 + 1.2 * Math.max(0, Math.cos(ph + 0.5));
+    o.rP = 0.2 - 0.78 * s;
+    o.rB = 0.8 + 1.2 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
+    o.lS = 0.18 + 0.1 * Math.sin(ph + 1.3); o.rS = 0.18 - 0.1 * Math.sin(ph + 1.3);
     o.bob = -Math.abs(Math.cos(ph)) * 0.07 + 0.05;
     return o;
   },

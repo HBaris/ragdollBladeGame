@@ -17,11 +17,13 @@ export const JOINTS = 16;
 // Kas sertliği ve sönüm çarpanları. Üst gövde (kafa, boyun, omuzlar) yumuşak ve az
 // sönümlü: hızlanınca, dönünce, durunca geride kalıp sallanır; kılıcı tutan eller onu
 // peşinden sürükler. Bacaklar sert kalır ki ayaklar yere bassın.
-const JOINT_K = [0.3, 0.35, 1.0, 0.35, 0.45, 0.8, 0.35, 0.45, 0.8, 1.0, 0.8, 1.1, 1.0, 0.8, 1.1, 1.0];
-const JOINT_C = [0.6, 0.9, 1.0, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
+// Pelvis çivili değil, güçlü bir yayla kontrolcüyü izler: vurulunca, zıplayınca bütün gövde
+// sarsılır. Bacaklar da gevşek: dizler titrer, ayaklar sürüklenir.
+const JOINT_K = [0.3, 0.3, 1.4, 0.3, 0.45, 0.8, 0.3, 0.45, 0.8, 0.75, 0.4, 0.55, 0.75, 0.4, 0.55, 0.9];
+const JOINT_C = [0.6, 0.9, 1.0, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 0.8, 0.6, 0.6, 0.8, 0.6, 0.6, 1.0];
 // Dikey sertlik çarpanı: üst gövde koşunun zıplamasını dikeyde sıkı takip eder (yoksa
 // ataletiyle belden katlanır), öne/yana salınım ise yumuşak kalır.
-const JOINT_KY = [3, 4, 1, 4, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1, 4];
+const JOINT_KY = [3, 4, 1.5, 4, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1, 4];
 const JOINT_R = [0.14, 0.07, 0.14, 0.08, 0.06, 0.06, 0.08, 0.06, 0.06, 0.09, 0.08, 0.07, 0.09, 0.08, 0.07, 0.15];
 export const MIN_CUT_LEN = 0.12;
 const ITERS = 5;
@@ -87,7 +89,7 @@ export class Ragdoll {
     }
     this.pts[J.HEAD].r = this.d.headR;
     this.pts[J.HEAD].im = 0.8;
-    this.pts[J.PELVIS].pin = true;
+    this.pts[J.PELVIS].pin = false; // yayla bağlı (JOINT_K), çivili değil
     for (const [a, b, r, kind, sa, sb] of BONE_DEFS) this.addBone(a, b, r * S, kind, sa, sb);
     // Göğüs (omuzlar-boyun-bel) ve karın (kalçalar-pelvis-bel) kendi içinde sağlam; bel
     // ise bilye eklem gibi her yöne bükülür ve burulur. Sırtın tamamen katlanmasını sadece
