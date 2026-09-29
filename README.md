@@ -77,10 +77,13 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - **Buhar:** Ensesinin arkasından beyaz buhar tütüp tıslamaya başlarsa uzaklaş: ~1.3 sn sonra patlar (enseye her darbe yiyince hemen), yakınındakini halatıyla birlikte savurur. Kopan uzuvlarının güdükleri de tüter.
   - **Hançer:** Tek elinde (ona göre) küçük bir hançer var; sağ eli koparsa sola geçer, iki eli de giderse silahsız kalır. Her savuruşu **oyuncuya nişan alır**: hazırlanırken senin gideceğin yeri tahmin eder, savuruş başlayınca yönü donar; son anda yön değiştirirsen kurtulursun. Yerdekine çömelip tepeden ya da çapraz vurur, havadakine (ensesindekine) hızlı yatay savurur.
   - Darbesi nereye gelirse gelsin bir uzvunu koparır (kafana gelse de kafan uçmaz, bir uzvun gider); iki kolun giderse ölürsün.
-- **Titan muharebesi:** Yanında 16 kişilik mavi bir piyade birliği, karşında geniş bir hatta gelen **üç titan**. Hepsini ensesinden düşürünce kazanırsın.
-  - Müttefikler titanların ayak dibine koşup bacaklarına savurur; küçük kılıçları çoğunlukla sıyırır ama arada bir bacak ya da kol koparır (bacaksız titan sürünür, ensesi alçalır). Ense senin işin.
+- **Titan muharebesi:** Karşında geniş bir hatta gelen **üç titan**; hepsini ensesinden düşürünce kazanırsın. Yanında 8 kişilik bir öncü birlik başlar, **ilk 60 saniye boyunca** her 7,5 saniyede bir arkandan (en yakın titanın ters yönünden) üçer kişilik yeni dostlar gelir (aynı anda en fazla 18 canlı dost).
+  - Dostların ~%30'u **halatlı** (yeşilimsi mavi, senin gibi çift kılıçlı): titana halat atıp çoğunlukla ensesine, bazen sırtına ya da omzuna uçar, yolda değdiğini keser. Ensesini yarabilir ama **son kesiş hep senin**: dostlar enseyi en fazla 1 darbeye indirir.
+  - ~%30'u **atlı**: titanın yanından dörtnala geçerken uzun kılıçla bacağına savurur; at titanı itemez, bacaklarının etrafından dolaşır.
+  - Kalanı piyade: titanların ayak dibine koşup bacaklarına savurur.
+  - Dostların küçük kılıçları titanın uzvunu çoğunlukla sıyırır ama arada bir bacak ya da kol koparır (bacaksız titan sürünür, ensesi alçalır).
   - Titanlar en çok sana sinirlidir ama dibindekileri de biçer; hançer birine saplanınca o savuruş biter. Hançer inmeden önce müttefikler (becerisine göre) geri sıçrar, buhar onları da savurur.
-  - Kalabalıkta dost ateşi öldürmez, sadece iter ("HEY!"). Birlik azaldıkça arkadan üçer kişilik **takviye** gelir (toplam 12).
+  - Kalabalıkta dost ateşi öldürmez, sadece iter ("HEY!"). Buhar halatlı dostların halatını da koparır.
   - Kamera en yakın titana kilitlenir; o düşünce sıradakine geçer. Halat attığında dokunduğun titana uçarsın.
 - **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
 - **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.

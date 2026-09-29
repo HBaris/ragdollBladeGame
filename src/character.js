@@ -50,6 +50,8 @@ export class Character {
     this.side = this.team === 'enemy' ? 1 : 0;
     this.target = null; this.tgT = 0; this.passSide = 1;
     this.titan = !!o.titan;
+    this.flyer = !!o.flyer;     // titan muharebesinde halatla uçan dost
+    this.hookCd = rand(0.5, 2);
     this.heavy = !!o.heavy;     // at seviyesinin iri ve ağır düşmanları
     this.boss = !!o.boss;       // iri, dayanıklı ama ağırkanlı
     // Titan dışında herkes kılıcı "joystick" ile kullanır: çubuğun yönü hem koşu hem kılıç yönü.
@@ -366,7 +368,8 @@ export class Character {
     const L = this.local, TL = tg.local;
     const hG = this.y + lerp(L[J.NECK * 3 + 1], L[J.PELVIS * 3 + 1], 0.28) - 0.1 * this.S;
     // Titana karşı göğüs hizası yok: bacaklarına (diz altına) savurur.
-    const hT = tg.titan ? tg.y + 0.9 : tg.y + lerp(TL[J.NECK * 3 + 1], TL[J.PELVIS * 3 + 1], 0.4);
+    // Halatla uçan dost kılıcı halatın takıldığı yere (enseye) tutar.
+    const hT = this.flyer && this.rope ? this.rope.pt.y : tg.titan ? tg.y + 0.9 : tg.y + lerp(TL[J.NECK * 3 + 1], TL[J.PELVIS * 3 + 1], 0.4);
     const pw = clamp(Math.atan2(hT - hG, Math.max(0.8, dist - 0.3)), -0.6, 0.35);
     this.pitchAdj += (pw - this.pitchAdj) * damp(6, dt);
     if (g.time < 0.8) { turnTo(toT, 3, 0.25); return; } // seviye başında kısa bir nefes
@@ -375,6 +378,7 @@ export class Character {
     // Karşı takımda kimse kalmadıysa (düşmana göre: oyuncu öldüyse) sevinir.
     if ((!tg0 || (this.side && !pl.alive)) && this.state !== 'panic') this.state = 'cheer';
     if (this.mount && this.state !== 'cheer') { this.thinkRider(dt, tg, dx, dz, dist, toT, turnTo); return; }
+    if (this.flyer && this.state !== 'cheer' && this.thinkFlyer(dt, tg, dist, toT, set)) return;
     const sk = this.skill, reach = tg.titan ? 2.1 : 1.6 * this.S;
     // Başparmak gecikmesi: hedefi insan gibi biraz geriden takip eder.
     const track = lerp(2.5, 5.5, sk) * (this.heavy ? 0.6 : 1);
@@ -435,15 +439,36 @@ export class Character {
     return best;
   }
 
+  // Halatlı dost: titana halat atıp çoğunlukla ensesine uçar (yolda değdiğini keser);
+  // havadayken kılıcı halatın takıldığı yere tutar, inince kısa bir soluklanıp yine atar.
+  thinkFlyer(dt, tg, dist, toT, set) {
+    this.hookCd -= dt;
+    const r = this.rope;
+    if (r || this.y > this.gy + 0.3) {
+      const a = r ? r.pt : tg;
+      set(Math.atan2(a.x - this.x, a.z - this.z), 0.5);
+      return true;
+    }
+    if (!tg.titan || this.stun > 0 || this.kb > 0) return false;
+    if (this.hookCd <= 0 && dist < 24 && dist > 3) {
+      this.hookCd = rand(1.2, 2.6) * lerp(1.3, 0.8, this.skill);
+      this.game.allyHook(this, tg);
+      return true;
+    }
+    // Halat beklerken titana koşar ama ayağının dibine girmez, etrafında döner.
+    set(toT + (dist < 9 ? this.strafeDir * 1.4 : 0), dist > 9 ? 0.95 : 0.7);
+    return true;
+  }
+
   // Süvari: hedefin yanından geçecek şekilde dörtnala sürer, yanından geçerken savurur;
   // geçip gidince hedef arkada kalır, at hızlıyken geniş bir drift'le geri döner.
   thinkRider(dt, tg, dx, dz, dist, toT, turnTo) {
     if (this.state === 'attack') { this.runPlan(dt, toT, 5); return; }
     if (this.state === 'stagger') { if (this.stun <= 0) { this.state = 'fight'; this.cool = rand(0.3, 0.7); } return; }
-    const off = Math.min(dist * 0.3, 1.8) * this.passSide;
+    const off = Math.min(dist * 0.3, tg.titan ? 2.8 : 1.8) * this.passSide; // titanın bacakları arasından geçemez
     const px = dz / dist, pz = -dx / dist;
     turnTo(Math.atan2(tg.x + px * off - this.x, tg.z + pz * off - this.z), 5, 0.95);
-    if (this.cool <= 0 && dist < 3.3 * this.S && this.mayAttack(tg, true)) {
+    if (this.cool <= 0 && dist < (tg.titan ? 4.2 : 3.3 * this.S) && this.mayAttack(tg, true)) {
       this.passSide = Math.random() < 0.5 ? -1 : 1;
       this.startFlick(true);
     }
@@ -580,7 +605,7 @@ export class Character {
   move(dt) {
     const env = this.game.world;
     const air = this.y > this.gy + 0.02 || this.vy > 0.01;
-    if (this.isPlayer && !this.falling && (this.rope || air)) {
+    if ((this.isPlayer || this.flyer) && !this.falling && (this.rope || air)) {
       this.moveAir(dt);
       this.turn(dt);
       return;

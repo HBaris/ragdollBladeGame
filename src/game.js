@@ -16,6 +16,7 @@ const STEAM_WARN = 1.3; // titanın ensesi patlamadan bu kadar önce tüter (s)
 const PLAYER_COLOR = 0xffa51f;
 const ENEMY_COLOR = 0xa51cff;
 const ALLY_COLOR = 0x4fb4ff;
+const FLYER_COLOR = 0x3fd6c8; // halatlı dostlar biraz yeşilimsi: ayırt edilsin
 const BOSS_COLOR = 0x6a12c2;
 const TITAN_COLOR = 0xb45cf0;
 const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara' };
@@ -23,6 +24,10 @@ const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Bat�
 const DUEL_ENVS = ['meadow', 'ice', 'dojo'];
 const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan', 'titanwar'];
 const NPC_TITAN_CUT = 0.12; // müttefikin darbesi titanın uzvunu bu olasılıkla koparır (çoğu sıyırır)
+// Titan muharebesi takviyeleri: ilk 60 sn boyunca WAVE_GAP'te bir üçer kişi; sıra halatlı,
+// atlı, piyade karışık (~%30 halatlı, ~%30 atlı).
+const WAVE_GAP = 7.5, WAVE_END = 60, WAVE_MAX_ALIVE = 18;
+const WAVE_MIX = ['flyer', 'cav', 'foot', 'foot', 'flyer', 'cav', 'foot', 'flyer', 'foot', 'cav'];
 const DEATH_QUIPS = [
   'Ragdoll fiziği 1 — Sen 0',
   'Parçalarını toplamak biraz sürecek.',
@@ -41,7 +46,8 @@ export function levelSpec(n) {
   if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
   if (type === 'titan') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan'] };
   // Titan muharebesi: yanında kalabalık bir piyade birliği, karşında üç titan.
-  if (type === 'titanwar') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan', 'titan', 'titan'], allies: new Array(16).fill('foot') };
+  // İlk birlik küçük; gerisi ilk 60 saniyede dalga dalga gelir (bkz. allyWaves).
+  if (type === 'titanwar') return { type, env: 'meadow', big: true, skill, boss: false, enemies: ['titan', 'titan', 'titan'], allies: ['foot', 'flyer', 'foot', 'cav', 'foot', 'flyer', 'foot', 'cav'] };
   if (type === 'battle') {
     // Muharebe: at sırtında, kalabalık bir düşman ordusuna karşı birkaç müttefikle. Düşmanın
     // dörtte biri, müttefiklerin ikisi atlı.
@@ -111,6 +117,7 @@ export class Game {
     this._bb = {};
     this.titan = null;
     this.titans = [];
+    this.allyRopes = [];
     this.hookSide = 1;
     this.raycaster = new THREE.Raycaster();
     this.ropeMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1, 6).translate(0, 0.5, 0), new THREE.MeshStandardMaterial({ color: 0x2b2b30, roughness: 0.6 }));
@@ -243,12 +250,12 @@ export class Game {
     });
     // Müttefikler oyuncunun etrafında: maviler dost.
     (spec.allies || []).forEach((type, i) => {
-      const cav = type === 'cav', sx = i % 2 ? 1 : -1, crowd = spec.allies.length > 8;
-      this.spawnAlly(cav,
-        crowd ? sx * (2 + Math.floor(i / 2) * 1.8) + rand(-0.5, 0.5) : sx * (cav ? rand(6, 9) : rand(2.5, 5)),
-        pz + (crowd ? rand(1, 5) : cav ? rand(-2, 0) : rand(1.5, 4)));
+      const cav = type === 'cav', sx = i % 2 ? 1 : -1, crowd = spec.type === 'titanwar';
+      this.spawnAlly(type,
+        crowd ? sx * (2.5 + Math.floor(i / 2) * 2.2) + rand(-0.5, 0.5) : sx * (cav ? rand(6, 9) : rand(2.5, 5)),
+        pz + (crowd ? rand(-1, 4) : cav ? rand(-2, 0) : rand(1.5, 4)));
     });
-    this.reinfT = 16; this.reinfLeft = spec.type === 'titanwar' ? 12 : 0;
+    this.waveT = WAVE_GAP; this.waveI = 0;
     this.phase = 'play';
     this.endT = 0;
     this.time = 0;
@@ -267,11 +274,12 @@ export class Game {
 
   restartLevel() { this.startLevel(this.level); }
 
-  spawnAlly(cav, x, z) {
-    const sk = this.spec.skill;
+  // type: 'foot' piyade, 'cav' atlı, 'flyer' halatla uçan (çift kılıçlı).
+  spawnAlly(type, x, z) {
+    const sk = this.spec.skill, cav = type === 'cav', flyer = type === 'flyer';
     const a = this.addChar({
-      team: 'ally', hp: 1, color: ALLY_COLOR, yaw: 0, skill: Math.min(1, sk + 0.2), speed: lerp(3.4, 5.4, sk),
-      x, z, bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN,
+      team: 'ally', hp: 1, color: flyer ? FLYER_COLOR : ALLY_COLOR, yaw: 0, skill: Math.min(1, sk + (flyer ? 0.3 : 0.2)), speed: lerp(3.4, 5.4, sk),
+      x, z, bladeLen: cav ? HORSE_BLADE_LEN : BLADE_LEN, flyer, dual: flyer,
     });
     if (cav) this.mountOn(a, 0xe8dcc4, 0x8a6a4a);
     this.allies.push(a);
@@ -279,20 +287,43 @@ export class Game {
     return a;
   }
 
-  // Titan muharebesi: birlik azaldıkça arkadan üçer kişilik takviye gelir.
-  reinforce(h) {
-    if (this.reinfLeft <= 0 || this.phase !== 'play') return;
-    this.reinfT -= h;
-    if (this.reinfT > 0) return;
-    this.reinfT = 14;
-    if (this.allies.filter((a) => a.alive).length > 10) return;
-    const pl = this.player;
-    for (let i = 0; i < 3 && this.reinfLeft > 0; i++, this.reinfLeft--) {
-      let x = pl.x + (i - 1) * 2.5 + rand(-0.5, 0.5), z = pl.z - rand(10, 14);
-      if (!this.world.inside(x, z, 2)) { x = pl.x * 0.8 + (i - 1) * 2.5; z = pl.z * 0.8; }
-      this.spawnAlly(false, x, z);
+  // Titan muharebesi: ilk 60 saniye boyunca oyuncunun arkasından (en yakın titanın tersi
+  // yönde) üçer kişilik dalgalar gelir. Atlılar daha geriden, dörtnala yetişir.
+  allyWaves(h) {
+    if (this.time > WAVE_END + 0.5 || this.phase !== 'play') return;
+    this.waveT -= h;
+    if (this.waveT > 0) return;
+    this.waveT = WAVE_GAP;
+    const alive = this.allies.filter((a) => a.alive).length;
+    const n = Math.min(3, WAVE_MAX_ALIVE - alive);
+    if (n <= 0) return;
+    const pl = this.player, t = this.titans.find((x) => x.alive) || pl;
+    let bx = pl.x - t.x, bz = pl.z - t.z;
+    const bl = Math.hypot(bx, bz) || 1;
+    bx /= bl; bz /= bl;
+    for (let i = 0; i < n; i++) {
+      const type = WAVE_MIX[this.waveI++ % WAVE_MIX.length];
+      const back = type === 'cav' ? rand(18, 24) : rand(11, 15), side = (i - 1) * 3 + rand(-0.8, 0.8);
+      let x = pl.x + bx * back + bz * side, z = pl.z + bz * back - bx * side;
+      if (!this.world.inside(x, z, 3)) { const k = (this.world.radius - 6) / (Math.hypot(x, z) || 1); x *= k; z *= k; }
+      this.spawnAlly(type, x, z);
     }
-    this.fx.popup(pl.x, pl.y + 2.6, pl.z, 'TAKVİYE GELDİ!', '#7cc8ff', 22, 1.5);
+    if (pl.alive) this.fx.popup(pl.x, pl.y + 2.6, pl.z, `+${n} DOST GELDİ`, '#7cc8ff', 18, 1.1);
+  }
+
+  // Halatlı dost titana halat atar: çoğunlukla ensesine (usta olan daha sık), bazen sırtına
+  // ya da omzuna. Halat o noktayla birlikte hareket eder.
+  allyHook(c, t) {
+    const rag = t.rag, r = Math.random();
+    let idx = r < 0.5 + 0.3 * c.skill ? J.NECK : r < 0.85 ? J.SPINE : pick([J.LSH, J.RSH, J.PELVIS]);
+    if (!rag.pts[idx].attached) idx = J.NECK;
+    const P = rag.pts[idx], pt = { x: P.x, y: P.y, z: P.z };
+    c.rope = {
+      pt, pull: 44, release: 1.6, maxT: 2.2, t: 0, titan: true,
+      anchor() { const q = rag.pts[idx]; pt.x = q.x; pt.y = q.y; pt.z = q.z; return pt; },
+    };
+    if (c.y < c.gy + 0.05) { c.vy = Math.max(c.vy, 4.5); c.y = c.gy + 0.03; }
+    if (this.near(c, 14)) Sfx.swoosh(2);
   }
 
   // Karakteri kendi rengindeki bir ata bindirir.
@@ -362,7 +393,7 @@ export class Game {
     this.time += h;
     this.world.step(h, this.player);
     for (const t of this.titans) if (t.alive) { this.titanSteam(t, h); this.titanDodge(t); }
-    if (this.reinfLeft > 0) this.reinforce(h);
+    if (this.spec.type === 'titanwar') this.allyWaves(h);
     for (const hs of this.horses) {
       const r = hs.rider;
       hs.update(h, r && r.alive ? r.stickW : null, this.world);
@@ -436,7 +467,7 @@ export class Game {
     }
     for (let i = 0; i < cs.length; i++) {
       const a = cs[i];
-      if (!a.alive || a.falling || a.mount || (a.isPlayer && a.y - a.gy > 0.5)) continue;
+      if (!a.alive || a.falling || a.mount || ((a.isPlayer || a.flyer) && a.y - a.gy > 0.5)) continue;
       if (ropes) {
         // Sağlam halatlar direk gibi: içinden geçilmez.
         for (const r of ropes) {
@@ -447,12 +478,15 @@ export class Game {
       }
       for (const hs of horses) {
         // Atın gövdesi de engel: yayalar içinden geçmesin (ezilmez, sadece kenara itilir).
-        const dx = a.x - hs.x, dz = a.z - hs.z, d = Math.hypot(dx, dz) || 1, min = 1.0 + 0.3 * a.S;
-        if (d < min) { a.x = hs.x + dx / d * min; a.z = hs.z + dz / d * min; }
+        // Titanı at itemez; at titanın bacaklarının etrafından dolaşır.
+        const dx = a.x - hs.x, dz = a.z - hs.z, d = Math.hypot(dx, dz) || 1, min = a.titan ? 1.0 + 0.25 * a.S : 1.0 + 0.3 * a.S;
+        if (d < min) {
+          if (a.titan) { hs.x = a.x - dx / d * min; hs.z = a.z - dz / d * min; } else { a.x = hs.x + dx / d * min; a.z = hs.z + dz / d * min; }
+        }
       }
       for (let j = i + 1; j < cs.length; j++) {
         const b = cs[j];
-        if (!b.alive || b.falling || b.mount || (b.isPlayer && b.y - b.gy > 0.5)) continue;
+        if (!b.alive || b.falling || b.mount || ((b.isPlayer || b.flyer) && b.y - b.gy > 0.5)) continue;
         const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
         // Titanın ayakları arasına sokulabilirsin (bacağını kesmek için); küçükler titanı
         // itemez, o onları iter.
@@ -562,6 +596,7 @@ export class Game {
       if (d > 11) continue;
       const k = 14 * (1 - d / 14), hl = Math.hypot(dx, dz) || 1;
       a.vx += dx / hl * k; a.vz += dz / hl * k; a.kb = 0.5;
+      if (a.rope) { a.rope = null; a.vy = Math.max(a.vy, 4); }
     }
     if (!pl.alive) return;
     const dx = pl.x - nx, dy = pl.y + 1 - ny, dz = pl.z - nz, d = Math.hypot(dx, dy, dz) || 1;
@@ -894,7 +929,19 @@ export class Game {
     if (res && res.kind === 'neck') { this.killEnemy(o, a, res, vx, vy, vz); return; }
     o.flash = 0.15;
     const y = o.rag.pts[J.NECK].y + 1;
-    if (!a.isPlayer && !res) { if (this.near(o, 14)) Sfx.thud(600); return; } // müttefik sıyırdı
+    if (!a.isPlayer && !res) {
+      // Halatlı dost enseyi yarabilir ama son kesiş hep senin: ensesini 1 darbeye kadar indirir.
+      if (kind === 'neck' && a.flyer && o.neckHp > 1 && this.time > (o.neckCdAlly || 0)) {
+        o.neckCdAlly = this.time + 1.5;
+        o.neckHp--;
+        o.stun = Math.max(o.stun, 0.3);
+        this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 20, 0.6, 5);
+        if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST ENSEYİ YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3); Sfx.slice(); }
+        return;
+      }
+      if (this.near(o, 14)) Sfx.thud(600);
+      return;
+    }
     if (kind === 'neck') {
       // Enseye isabet ama kopmadı: titan sendeler, öfkelenir (hemen buhar üfler).
       // Aynı bıçakla aynı dalışta ikinci kez sayılmaz.
@@ -1080,11 +1127,28 @@ export class Game {
 
   // Halat: oyuncunun göğsünden bağlandığı noktaya ince bir silindir.
   updateRope() {
-    const pl = this.player, r = pl.alive ? pl.rope : null, m = this.ropeMesh;
+    this.placeRope(this.ropeMesh, this.player);
+    // Halatlı dostların halatları (gerektikçe büyüyen bir havuzdan).
+    let k = 0;
+    for (const c of this.allies) {
+      if (!c.flyer || !c.alive || !c.rope) continue;
+      if (k >= this.allyRopes.length) {
+        const m = new THREE.Mesh(this.ropeMesh.geometry, this.ropeMesh.material);
+        m.frustumCulled = false;
+        this.scene.add(m);
+        this.allyRopes.push(m);
+      }
+      this.placeRope(this.allyRopes[k++], c);
+    }
+    for (; k < this.allyRopes.length; k++) this.allyRopes[k].visible = false;
+  }
+
+  placeRope(m, c) {
+    const r = c.alive ? c.rope : null;
     if (!r) { m.visible = false; return; }
-    const a = r.anchor(), N = pl.rag.pts[J.NECK];
+    const a = r.anchor(), N = c.rag.pts[J.NECK];
     _v.set(a.x - N.x, a.y - N.y, a.z - N.z);
-    const len = _v.length();
+    const len = _v.length() || 1e-3;
     m.visible = true;
     m.position.set(N.x, N.y, N.z);
     m.scale.set(1, len, 1);
