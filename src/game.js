@@ -916,16 +916,6 @@ export class Game {
     }
   }
 
-  // Titanın boyun yarası: her darbe kalıcı, güçlü akan bir yara açar. Yazı olmadan da ne
-  // kadar yaklaştığın belli olur: boyun ne kadar çok kanıyorsa ölüme o kadar yakın.
-  neckWound(o, hurt) {
-    const nb = o.rag.boneWith(J.HEAD);
-    if (nb < 0) return;
-    const N = o.rag.pts[J.NECK];
-    this.fx.spray(N.x, N.y + 0.5, N.z, 0, 1, 0, 60, 1, 8, true);
-    this.fx.wound(o.rag, nb, rand(0.15, 0.5), 14, { rate: 40 + 30 * hurt, spd: 2.2, max: 16 });
-  }
-
   onHit(a, o, hit, vx, vy, vz) {
     const rag = o.rag, wasAlive = o.alive;
     // Arkadaşını kesen düşman: kurban bazen kin tutup ona döner.
@@ -1001,8 +991,8 @@ export class Game {
         o.neckHp--;
         o.neckCutT = this.time + NECK_CUT_GAP;
         o.stun = Math.max(o.stun, 0.3);
-        this.neckWound(o, TITAN_NECK_HP - o.neckHp);
-        if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST BOYNUNU YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3); Sfx.slice(); }
+        // Kalan darbe sayısı titan savaşında da gösterilen tek vuruş yazısı.
+        if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST BOYNUNU YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3, true); Sfx.slice(); }
         return;
       }
       if (this.near(o, 14)) Sfx.thud(600);
@@ -1017,8 +1007,7 @@ export class Game {
       o.neckCutT = this.time + NECK_CUT_GAP;
       o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
       o.steamT = Math.min(o.steamT, 1.0);
-      this.neckWound(o, TITAN_NECK_HP - o.neckHp);
-      this.fx.popup(o.x, y, o.z, `BOYUN! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
+      this.fx.popup(o.x, y, o.z, `BOYUN! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3, true);
       this.slowmo(0.2, 0.3);
       this.shake(0.2);
       Sfx.slice();
