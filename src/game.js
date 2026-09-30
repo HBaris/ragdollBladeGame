@@ -214,6 +214,8 @@ export class Game {
     const mounted = spec.type === 'horse' || spec.type === 'battle';
     // Titanlara karşı: halat ve çift kılıç.
     this.titanMode = spec.type === 'titan' || spec.type === 'titanwar';
+    // Titanlarla savaşta vuruş/kopma yazıları çıkmaz (sadece dost geldi yazısı kalır).
+    this.fx.quiet = this.titanMode;
     const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : spec.type === 'battle' || spec.type === 'titanwar' ? -22 : -6;
     this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: mounted ? HORSE_BLADE_LEN : BLADE_LEN, dual: this.titanMode });
     if (mounted) this.mountOn(this.player, 0x9a5a33, 0x3a2214);
@@ -311,7 +313,7 @@ export class Game {
       if (!this.world.inside(x, z, 3)) { const k = (this.world.radius - 6) / (Math.hypot(x, z) || 1); x *= k; z *= k; }
       this.spawnAlly(type, x, z);
     }
-    if (pl.alive) this.fx.popup(pl.x, pl.y + 2.6, pl.z, `+${n} DOST GELDİ`, '#7cc8ff', 18, 1.1);
+    if (pl.alive) this.fx.popup(pl.x, pl.y + 2.6, pl.z, `+${n} DOST GELDİ`, '#7cc8ff', 18, 1.1, true);
   }
 
   // Halatlı dost titana halat atar: çoğunlukla ensesine (usta olan daha sık), bazen sırtına
@@ -360,7 +362,7 @@ export class Game {
       if (this.perfT > 3) {
         this.perfSlow = this.perfT / this.perfN > 1 / 35 ? (this.perfSlow || 0) + 1 : 0;
         this.perfT = 0; this.perfN = 0;
-        if (this.perfSlow >= 2) { this.toggleQuality(); this.fx.popup(this.player.x, 3, this.player.z, 'Akıcılık için grafik düşürüldü', '#fff', 16, 2.2); }
+        if (this.perfSlow >= 2) { this.toggleQuality(); this.fx.popup(this.player.x, 3, this.player.z, 'Akıcılık için grafik düşürüldü', '#fff', 16, 2.2, true); }
       }
     }
     const taps = this.input.taps;
@@ -868,22 +870,47 @@ export class Game {
   }
 
   gore(rag, res, hit, vx, vy, vz) {
-    const h = this.h;
+    const h = this.h, big = rag.S > 3;
     if (res) {
       // Kopan küçük parça daha sert fırlar.
       const c1 = rag.comp[res.i1], c2 = rag.comp[res.i2];
       const small = rag.compSize(c1) < rag.compSize(c2) ? c1 : c2;
       rag.addVel(vx * 0.35, vy * 0.35 + 2, vz * 0.35, h, small);
-      this.fx.spray(res.x, res.y, res.z, vx, vy, vz, 34, 0.5, 5);
-      this.fx.spray(res.x, res.y, res.z, 0, 1, 0, 14, 0.9, 3);
-      this.fx.bleed(rag, res.i1, rand(1.2, 2.2));
-      this.fx.bleed(rag, res.i2, rand(1.2, 2.2));
+      if (big) {
+        // Titan: kesikten kan fışkırır, iki güdük de saniyelerce akar (boyun daha da uzun).
+        this.fx.spray(res.x, res.y, res.z, vx, vy, vz, 70, 0.6, 9, true);
+        this.fx.spray(res.x, res.y, res.z, 0, 1, 0, 34, 0.9, 7, true);
+        const neck = res.kind === 'neck', o = { big: true, rate: neck ? 130 : 100, spd: 2.6 };
+        this.fx.bleed(rag, res.i1, neck ? rand(9, 12) : rand(5, 8), o);
+        this.fx.bleed(rag, res.i2, neck ? rand(9, 12) : rand(5, 8), o);
+      } else {
+        this.fx.spray(res.x, res.y, res.z, vx, vy, vz, 34, 0.5, 5);
+        this.fx.spray(res.x, res.y, res.z, 0, 1, 0, 14, 0.9, 3);
+        this.fx.bleed(rag, res.i1, rand(1.2, 2.2));
+        this.fx.bleed(rag, res.i2, rand(1.2, 2.2));
+      }
       this.fx.sparks(res.x, res.y, res.z, 5);
       Sfx.slice();
+    } else if (big) {
+      // Titan kesilmeden yaralandı: iri bir fışkırma ve birkaç saniye akan yara.
+      this.fx.spray(hit.x, hit.y, hit.z, vx, vy, vz, 24, 0.8, 6, true);
+      const bone = hit.head ? rag.boneWith(J.HEAD) : hit.bone;
+      if (bone >= 0) this.fx.wound(rag, bone, hit.head ? 0.8 : hit.u, rand(3, 5), { rate: 35, spd: 1.6 });
+      Sfx.wound();
     } else {
       this.fx.spray(hit.x, hit.y, hit.z, vx, vy, vz, 16, 0.7, 3);
       Sfx.wound();
     }
+  }
+
+  // Titanın boyun yarası: her darbe kalıcı, güçlü akan bir yara açar. Yazı olmadan da ne
+  // kadar yaklaştığın belli olur: boyun ne kadar çok kanıyorsa ölüme o kadar yakın.
+  neckWound(o, hurt) {
+    const nb = o.rag.boneWith(J.HEAD);
+    if (nb < 0) return;
+    const N = o.rag.pts[J.NECK];
+    this.fx.spray(N.x, N.y + 0.5, N.z, 0, 1, 0, 60, 1, 8, true);
+    this.fx.wound(o.rag, nb, rand(0.15, 0.5), 14, { rate: 40 + 30 * hurt, spd: 2.2, max: 16 });
   }
 
   onHit(a, o, hit, vx, vy, vz) {
@@ -961,7 +988,7 @@ export class Game {
         o.neckHp--;
         o.neckCutT = this.time + NECK_CUT_GAP;
         o.stun = Math.max(o.stun, 0.3);
-        this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 20, 0.6, 5);
+        this.neckWound(o, TITAN_NECK_HP - o.neckHp);
         if (this.near(o, 30)) { this.fx.popup(o.x, y, o.z, `DOST BOYNUNU YARDI! ${o.neckHp} darbe kaldı`, '#7cf0e0', 22, 1.3); Sfx.slice(); }
         return;
       }
@@ -977,7 +1004,7 @@ export class Game {
       o.neckCutT = this.time + NECK_CUT_GAP;
       o.stun = 0.6; o.state = 'stagger'; this.cancelSwing(o);
       o.steamT = Math.min(o.steamT, 1.0);
-      this.fx.spray(a.x, a.y + 1, a.z, vx, vy, vz, 30, 0.6, 6);
+      this.neckWound(o, TITAN_NECK_HP - o.neckHp);
       this.fx.popup(o.x, y, o.z, `BOYUN! ${o.neckHp} darbe kaldı`, '#ffd23f', 26, 1.3);
       this.slowmo(0.2, 0.3);
       this.shake(0.2);
