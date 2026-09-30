@@ -22,6 +22,7 @@ export class Hud {
         <button id="s-quality"></button>
         <button id="s-battle">Muharebeye git</button>
         <button id="s-grid">Izgara arenasına git</button>
+        <button id="s-ice">Buz haritasına git</button>
         <button id="s-roof">Platform seviyesine git</button>
         <button id="s-horse">At seviyesine git</button>
         <button id="s-titan">Titan seviyesine git</button>
@@ -42,6 +43,7 @@ export class Hud {
     root.querySelector('#s-quality').addEventListener('click', () => { game.toggleQuality(); this.refreshSettings(); });
     root.querySelector('#s-battle').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('battle'); });
     root.querySelector('#s-grid').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('grid'); });
+    root.querySelector('#s-ice').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('ice'); });
     root.querySelector('#s-roof').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('roof'); });
     root.querySelector('#s-horse').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('horse'); });
     root.querySelector('#s-titan').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titan'); });

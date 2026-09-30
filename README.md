@@ -36,7 +36,7 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 
 ## Oyun
 
-**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan** → **Titan Muharebesi**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer. Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Platform / At / Titan / Titan muharebesi … git" düğmeleri doğrudan oralara atlar.
+**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan** → **Titan Muharebesi**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer; çift numaralılar sırayla Buz Sahanlığı, Çayır ve Dojo'da (buz 2, 16, 32, 46… seviyelerde). Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Buz / Platform / At / Titan / Titan muharebesi … git" düğmeleri doğrudan oralara atlar.
 
 - **Muharebe:** At sırtında, kalabalık bir düşman ordusuna karşı küçük bir ordu.
   - Düşman 14 kişiden başlar, her turda artar (en çok 24); dörtte biri atlı, kanatlardan gelir. Senin yanında 5 **mavi** müttefik var, ikisi atlı.

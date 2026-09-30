@@ -20,8 +20,9 @@ const FLYER_COLOR = 0x3fd6c8; // halatlı dostlar biraz yeşilimsi: ayırt edils
 const BOSS_COLOR = 0x6a12c2;
 const TITAN_COLOR = 0xb45cf0;
 const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara' };
-// Düello ortamları: her tek seviye karanlık ızgara, arada diğerleri sırayla.
-const DUEL_ENVS = ['meadow', 'ice', 'dojo'];
+// Düello ortamları: tek numaralı düello/boss seviyeleri karanlık ızgara; çift numaralılar buz,
+// çayır ve dojo arasında sırayla döner.
+const DUEL_ENVS = ['ice', 'meadow', 'dojo'];
 const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan', 'titanwar'];
 // Boyun darbe sayısı (son darbe keser). Son kesiş yeni bir dalış ister: iki bıçak aynı
 // dalışta hem son darbeyi vurup hem kesemez. Çift kılıçla temiz üç dalış.
@@ -37,6 +38,18 @@ const DEATH_QUIPS = [
   'Kılıcın keskin, refleksin değil.',
   'Hiç değilse güzel uçtun.',
 ];
+
+// Çift numaralı düello/boss seviyelerini sayarak ortam seçer: seviye numarasına göre seçince
+// döngü uzunluğu değişince bir ortam (buz) 24 seviyede bir gelecek kadar seyrekleşmişti.
+function duelEnv(n) {
+  if (n % 2) return 'grid';
+  let k = 0;
+  for (let m = 2; m < n; m += 2) {
+    const t = LEVEL_CYCLE[(m - 1) % LEVEL_CYCLE.length];
+    if (t === 'duel' || t === 'boss') k++;
+  }
+  return DUEL_ENVS[k % DUEL_ENVS.length];
+}
 
 // Seviye tasarımı: düello, düello, platform, muharebe, düello, boss, at, platform, titan,
 // titan muharebesi döngüsü; zorluk yavaşça artar.
@@ -59,7 +72,7 @@ export function levelSpec(n) {
     for (let i = 0; i < n; i++) enemies.push(i < cav ? 'cav' : 'normal');
     return { type, env: 'meadow', big: true, skill: skill * 0.8, boss: false, enemies, allies: ['cav', 'cav', 'foot', 'foot', 'foot'] };
   }
-  const env = n % 2 ? 'grid' : DUEL_ENVS[Math.floor(n / 2) % 3];
+  const env = duelEnv(n);
   const boss = type === 'boss';
   const enemies = [];
   if (boss) {
