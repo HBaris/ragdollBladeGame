@@ -115,3 +115,18 @@ npm run dev     # değişiklikte otomatik yeniden paketler
 Zorluk eğrisi `levelSpec()` (`src/game.js`) içinde, düşman davranışı `thinkEnemy()` / `startFlick()` (`src/character.js`) içinde, drift ayarları `character.js` başındaki `GRIP_*` / `BRAKE_FAST` sabitlerinde.
 
 İlk sürüm olan 2D yan görünümlü oyun `2d/` klasöründe duruyor (`2d/index.html`).
+
+## Mobil uygulama (Google Play / App Store)
+
+Oyun [Capacitor](https://capacitorjs.com) ile yerel uygulamaya sarıldı: `android/` ve `ios/` projeleri,
+`capacitor.config.json` (paket kimliği `com.hbaris.ragdollkilic`). Uygulamada ekran dikey kilitli ve tam
+ekran; arka plana geçince oyun ve ses durur.
+
+- `npm run build:www`: oyunu derleyip `www/` klasörüne toplar (Capacitor bunu uygulamaya koyar).
+- `npm run cap:sync`: `www/`'yu Android ve iOS projelerine kopyalar.
+- `assets/`: ikon ve açılış ekranı kaynakları (`npx @capacitor/assets generate` bunlardan bütün boyutları üretir).
+- `store/`: mağaza metinleri (`listing.md`), ekran görüntüleri, Play tanıtım görseli ve 512 px ikon.
+- `docs/privacy.html`: gizlilik politikası (GitHub Pages ile yayınlanır).
+- `.github/workflows/`: Android (test APK + imzalı AAB) ve iOS (TestFlight'a yükleme) derlemeleri.
+
+Adım adım yayınlama rehberi: [PUBLISHING.md](PUBLISHING.md).

@@ -67,6 +67,9 @@ export const Sfx = (() => {
   return {
     init,
     toggleMute() { muted = !muted; return muted; },
+    // Uygulama arka plana geçince ses motoru uyusun (pil), dönünce uyansın.
+    suspend() { if (ac && ac.state === 'running') ac.suspend(); },
+    resume() { if (ac && ac.state === 'suspended') ac.resume(); },
     get muted() { return muted; },
     swoosh(stage) {
       if (!ok('swoosh', 0.03)) return;

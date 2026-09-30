@@ -1,0 +1,14 @@
+{
+  "appId": "com.hbaris.ragdollkilic",
+  "appName": "Ragdoll Kılıç",
+  "webDir": "www",
+  "backgroundColor": "#cfe4f2",
+  "android": {
+    "backgroundColor": "#cfe4f2"
+  },
+  "ios": {
+    "backgroundColor": "#cfe4f2",
+    "contentInset": "never",
+    "scrollEnabled": false
+  }
+}

@@ -1,0 +1,71 @@
+# Android: her çalıştırmada telefona doğrudan kurulabilen test APK'sı; GitHub Secrets'ta
+# yükleme anahtarı varsa ayrıca Google Play'e yüklenecek imzalı AAB.
+# Actions sekmesinden "Run workflow" ile elle çalıştırılır.
+name: Android derlemesi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: "Sürüm adı (ör. 1.0.0)"
+        required: true
+        default: "1.0.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:www
+      - run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Test APK'sı (imzasız hata ayıklama sürümü, telefona kurmak için)
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ragdoll-kilic-test-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Yükleme anahtarı var mı?
+        id: ks
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ANDROID_KEYSTORE_BASE64 tanımlı değil: sadece test APK'sı üretildi."
+          fi
+
+      - name: Google Play için imzalı AAB
+        if: steps.ks.outputs.present == 'true'
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: steps.ks.outputs.present == 'true'
+        with:
+          name: ragdoll-kilic-play-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab

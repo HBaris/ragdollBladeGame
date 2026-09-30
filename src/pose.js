@@ -20,8 +20,8 @@ export const POSES = {
   // Geniş, çömelmiş kılıç duruşu (ekran görüntülerindeki gibi).
   guard(o, t) {
     o.lean = 0.2; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.3;
-    o.lP = 0.62; o.lB = 1.15; o.lS = 0.34;
-    o.rP = 0.28; o.rB = 0.95; o.rS = 0.3;
+    o.lP = 0.62; o.lB = 1.15; o.lS = 0.16;
+    o.rP = 0.28; o.rB = 0.95; o.rS = 0.14;
     o.bob = Math.sin(t * 2.4) * 0.012;
     return o;
   },
@@ -29,8 +29,8 @@ export const POSES = {
   // Dururken (ya da sadece kılıcı çevirirken) bu duruşa çöker; kılıç buradan yere iner.
   crouch(o, t) {
     o.lean = 0.4; o.hunch = 0.6 + 0.06 * Math.sin(t * 2.2); o.twist = 0; o.side = 0.08 * Math.sin(t * 1.3); o.headP = -0.55;
-    o.lP = 1.05; o.lB = 1.95; o.lS = 0.42;
-    o.rP = 0.8; o.rB = 1.85; o.rS = 0.38;
+    o.lP = 1.05; o.lB = 1.95; o.lS = 0.2;
+    o.rP = 0.8; o.rB = 1.85; o.rS = 0.18;
     o.bob = Math.sin(t * 2.2) * 0.02;
     return o;
   },
@@ -38,28 +38,28 @@ export const POSES = {
   run(o, ph) {
     const s = Math.sin(ph);
     o.lean = 0.22; o.hunch = 0.72; o.twist = -s * 0.16; o.side = 0; o.headP = -0.32;
-    // Dizler hiç tam açılmaz, bacaklar yana açık ve adımda içe-dışa sallanır.
+    // Dizler hiç tam açılmaz; bacaklar birbirine yakın, adımda hafifçe içe-dışa sallanır.
     o.lP = 0.2 + 0.78 * s;
     o.lB = 0.8 + 1.2 * Math.max(0, Math.cos(ph + 0.5));
     o.rP = 0.2 - 0.78 * s;
     o.rB = 0.8 + 1.2 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
-    o.lS = 0.18 + 0.1 * Math.sin(ph + 1.3); o.rS = 0.18 - 0.1 * Math.sin(ph + 1.3);
+    o.lS = 0.08 + 0.06 * Math.sin(ph + 1.3); o.rS = 0.08 - 0.06 * Math.sin(ph + 1.3);
     o.bob = -Math.abs(Math.cos(ph)) * 0.07 + 0.05;
     return o;
   },
   // Hızını alamayıp dizüstü kayma: ön ayak ileride fren, arka diz yerde, gövde öne.
   kneel(o) {
     o.lean = 0.25; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.2;
-    o.lP = 1.2; o.lB = 1.3; o.lS = 0.18;
-    o.rP = -0.25; o.rB = 1.9; o.rS = 0.15;
+    o.lP = 1.2; o.lB = 1.3; o.lS = 0.1;
+    o.rP = -0.25; o.rB = 1.9; o.rS = 0.08;
     o.bob = -0.06;
     return o;
   },
   // Saldırı adımı: sol ayak önde, sağ ayak geride.
   lunge(o) {
     o.lean = 0.3; o.hunch = 0.3; o.side = 0; o.headP = -0.3;
-    o.lP = 0.85; o.lB = 1.0; o.lS = 0.22;
-    o.rP = -0.45; o.rB = 0.35; o.rS = 0.2;
+    o.lP = 0.85; o.lB = 1.0; o.lS = 0.1;
+    o.rP = -0.45; o.rB = 0.35; o.rS = 0.1;
     o.bob = -0.02;
     return o;
   },
@@ -103,8 +103,8 @@ export const POSES = {
   },
   air(o) {
     o.lean = 0.1; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = 0.1;
-    o.lP = 1.0; o.lB = 1.6; o.lS = 0.25;
-    o.rP = 0.4; o.rB = 1.4; o.rS = 0.25;
+    o.lP = 1.0; o.lB = 1.6; o.lS = 0.12;
+    o.rP = 0.4; o.rB = 1.4; o.rS = 0.12;
     o.bob = 0;
     return o;
   },

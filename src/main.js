@@ -1,4 +1,5 @@
 import { Game } from './game.js';
+import { Sfx } from './audio.js';
 
 // Menü yok: sayfa açılır açılmaz seviye başlar.
 function fail(err) {
@@ -21,8 +22,13 @@ if (game) {
   const loop = (now) => {
     const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
     last = now;
-    game.frame(dt);
+    if (!document.hidden) game.frame(dt);
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+  // Telefonda uygulama arka plana geçince oyun ve ses durur; dönünce kaldığı yerden sürer.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) Sfx.suspend();
+    else { Sfx.resume(); last = performance.now(); }
+  });
 }

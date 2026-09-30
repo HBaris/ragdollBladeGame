@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ragdoll Kılıç</string>
+    <string name="title_activity_main">Ragdoll Kılıç</string>
+    <string name="package_name">com.hbaris.ragdollkilic</string>
+    <string name="custom_url_scheme">com.hbaris.ragdollkilic</string>
+</resources>

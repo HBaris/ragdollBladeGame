@@ -5,10 +5,19 @@
   "description": "Menü yok: aç, koş, kes. 3D ragdoll kılıç düellosu.",
   "scripts": {
     "build": "esbuild src/main.js --bundle --minify --format=iife --target=es2019 --outfile=dist/game.js",
-    "dev": "esbuild src/main.js --bundle --sourcemap --format=iife --target=es2019 --outfile=dist/game.js --watch"
+    "dev": "esbuild src/main.js --bundle --sourcemap --format=iife --target=es2019 --outfile=dist/game.js --watch",
+    "build:www": "npm run build && node scripts/www.mjs",
+    "cap:sync": "npm run build:www && npx cap sync"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2",
     "esbuild": "0.28.2",
     "three": "0.186.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
   }
 }
