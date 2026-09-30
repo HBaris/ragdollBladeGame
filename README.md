@@ -64,9 +64,9 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 - **At seviyesi:** Geniş yeşil alanda atın sırtındasın.
   - Rakipler iri ama ağır; saldırıya hazırlanmaları uzun sürer.
   - At sırtında kılıç ~1,7 kat uzun (1,65 m bıçak): yerdeki iri rakiplere yukarıdan yetişir. At kimseyi ezmez; önüne çıkanı sadece kenara iter.
-- **Halatlı platform:** Gökyüzünde, kırmızı-beyaz halatlarla asılı 22 m'lik bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) var.
+- **Halatlı platform:** Gökyüzünde, dört köşesinden kırmızı-beyaz halatlarla asılı 22 m'lik bir beton platform; alçak bir duvarla çevrili. Sadece normal rakipler (2–4) var.
   - Halatlar direk gibidir, içinden geçilmez. Savrulan kılıç (seninki ya da rakibinki) değdiği halatı keser (**HALAT KOPTU!**). Alt parça yere kıvrılır, üst parça gökyüzüne fırlar.
-  - Platform, halatların kalanlarının ağırlık merkezine göre yan yatar ve sallanarak oturur. Kenardaki halatlar ortadakilerden çok yatırır. Aynı taraftan üç halat giderse ~20°.
+  - Platform, kalan halatların ağırlık merkezine göre yan yatar ve sallanarak oturur. Bir köşe kesilirse o köşeye ~11°, yan yana iki köşe kesilirse ~21° (tam) yatar. Çapraz iki halat kalırsa platform dengesizdir: üstündekilerin ağırlığı hangi yandaysa o yana devrilir.
   - Eğimde herkes aşağı kayar; koşarak karşı koyabilirsin. Duvar yavaş kaymayı durdurur, ama hızlı çarpan (darbe + kayma) duvarın üstünden devrilip düşer ve ölür.
 - **Titan seviyesi:** Uzakta, ~12 m boyunda, hızlı ve saldırgan bir titan var.
   - **Çift kılıç:** Titanlara karşı iki elinde birer kılıç var. Sağdaki joystick'le savrulan asıl kılıç, soldaki onun aynadaki eşi: öne V açarlar, savuruşta makas gibi kesişirler, topaç gibi dönünce ikisi de döner. Bir elin koparsa o elin kılıcı düşer, kalan elle tek kılıçla devam edersin.
@@ -87,7 +87,7 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Kalabalıkta dost ateşi öldürmez, sadece iter ("HEY!"). Buhar halatlı dostların halatını da koparır.
   - Kamera en yakın titana kilitlenir; o düşünce sıradakine geçer. Halat attığında dokunduğun titana uçarsın.
 - **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
-- **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
+- **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür; buz yüzer: üstündekilerin, cesetler dahil, ağırlığı hangi yana toplanırsa o yan suya gömülür, suyun 40 cm altında kalan buz su sayılır ve orada duran batar; buz kaygandır, yatınca herkes alçak kenara kayar) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
 
 ## Geliştirme
 

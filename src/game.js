@@ -271,7 +271,7 @@ export class Game {
     this.hud.setLevel(n);
     const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'titanwar' ? `TİTAN MUHAREBESİ! ${m} titan, ${this.allies.length} dost` : spec.type === 'battle' ? `MUHAREBE! ${m} düşman` : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
     this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || this.titanMode || spec.type === 'battle' ? 'boss' : '');
-    if ((spec.type !== 'duel' && spec.type !== 'boss') || spec.env === 'grid') this.hintT = Math.max(this.hintT, 6);
+    if ((spec.type !== 'duel' && spec.type !== 'boss') || spec.env === 'grid' || spec.env === 'ice') this.hintT = Math.max(this.hintT, 6);
     this.input.clear();
   }
 
@@ -395,6 +395,7 @@ export class Game {
   step(h) {
     this.h = h;
     this.time += h;
+    this.world.setLoad(this.chars);
     this.world.step(h, this.player);
     for (const t of this.titans) if (t.alive) { this.titanSteam(t, h); this.titanDodge(t); }
     if (this.spec.type === 'titanwar') this.allyWaves(h);
@@ -1209,6 +1210,6 @@ export class Game {
     const pl = this.player, P = pl.rag.pts[J.PELVIS];
     this.world.followShadow(P.x, P.z);
     this.renderer.render(this.scene, this.camera);
-    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT, this.player, this.spec.env === 'grid' ? 'grid' : this.spec.type);
+    this.hud.draw(this.projectFn, this.fx.popups, this.input, this.hintT, this.player, this.spec.env === 'grid' || this.spec.env === 'ice' ? this.spec.env : this.spec.type);
   }
 }

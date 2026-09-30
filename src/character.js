@@ -625,9 +625,10 @@ export class Character {
       if (dl > acc) { this.vx += ddx / dl * acc; this.vz += ddz / dl * acc; } else { this.vx = wx; this.vz = wz; }
     }
     // Eğim: platform yan yatınca herkes aşağı kayar; koşarak karşı koyabilirsin.
-    const sx = env.gx, sz = env.gz, sm = Math.hypot(sx, sz);
-    if (!air && !this.falling && sm > SLIDE_MIN) {
-      const a = GRAVITY * 0.85 * (sm - SLIDE_MIN) / sm * dt;
+    // Buzda eşik çok düşük ve kayma güçlü: yatan buzun alçak kenarına doğru sürüklenirsin.
+    const sx = env.gx, sz = env.gz, sm = Math.hypot(sx, sz), smin = env.slideMin ?? SLIDE_MIN;
+    if (!air && !this.falling && sm > smin) {
+      const a = GRAVITY * 0.85 * (sm - smin) / sm * (env.slideGain || 1) * dt;
       this.slideX -= sx * a; this.slideZ -= sz * a;
     }
     const sf = Math.exp(-1.2 * dt);

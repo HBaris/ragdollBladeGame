@@ -181,7 +181,8 @@ export class Hud {
       if (mode === 'horse') lines = ['Sürükle: at o yöne koşar, kılıç da', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'battle') lines = ['Maviler dost, morlar düşman', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'grid') lines = ['Parlayan karolardan uzak dur', 'Mavi halka ve pembe pistonlar havaya fırlatır', 'Kenardan boşluğa düşen ölür'];
-      if (mode === 'roof') lines = ['Halatlar platformu tutuyor', 'Kesersen platform yan yatar, herkes kayar', 'Kenardan düşen ölür'];
+      if (mode === 'roof') lines = ['Dört köşede dört halat platformu tutuyor', 'Birini kes: o köşeye yatar · yan yana iki: devrilir', 'Kenardan düşen ölür'];
+      if (mode === 'ice') lines = ['Buz yüzüyor: ağırlık hangi yana toplanırsa o yan batar', 'Batan kenar su olur: orada duran düşer', 'Düşmanları kenara topla, sen ortada kal'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
     }

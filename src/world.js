@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { hash, rand, clamp, GRAVITY } from './util.js';
+import { J } from './ragdoll.js';
 
 // Dört ortam: çayır, buz sahanlığı (düşersen suya), gün batımı dojo ve gökyüzünde
 // halatlarla asılı platform (halat kesilirse yan yatar).
@@ -301,13 +302,15 @@ function placeRope(mesh, L0, ax, ay, az, bx, by, bz) {
 
 // Platformu tutan halatlar (x, z): köşeler, kenarlar ve dövüşün döndüğü ortada 3 m'lik bir
 // halka. Çiftler merkeze göre simetrik: hepsi sağlamken platform düz durur.
-const ROPE_LAYOUT = [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4], [-8.4, -8.4], [9.6, 1.3], [-9.6, -1.3], [-3.2, 9.6], [3.2, -9.6]];
-for (let i = 0; i < 6; i++) {
-  const a = (20 + i * 60) * Math.PI / 180, b = (50 + i * 60) * Math.PI / 180;
-  ROPE_LAYOUT.push([+(Math.sin(a) * 4.5).toFixed(2), +(Math.cos(a) * 4.5).toFixed(2)]);
-  ROPE_LAYOUT.push([+(Math.sin(b) * 7.2).toFixed(2), +(Math.cos(b) * 7.2).toFixed(2)]);
-}
-const TILT_K = 1.6, TILT_MAX = 0.42; // halat ağırlık merkezi kaydıkça eğim (dy/dx)
+// Dört köşede dört halat. Biri kesilince platform o köşeye biraz, yan yana iki tanesi
+// kesilince tamamen yatar; çapraz iki halat kalırsa dengesizdir, ağırlığın olduğu yana devrilir.
+const ROPE_LAYOUT = [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4], [-8.4, -8.4]];
+const TILT_K = 0.56, TILT_MAX = 0.42; // halat ağırlık merkezi kaydıkça eğim (dy/dx)
+const ROOF_LOAD_K = 0.05;             // dengesiz platformda kenardaki bir kişinin eğime katkısı
+
+// Buz sahanlığı yüzer: üstündekilerin (cesetler dahil) ağırlığı hangi yana toplanırsa o yan
+// suya gömülür. Suyun ICE_SINK kadar altında kalan buz su sayılır: orada duran batar.
+const ICE_LOAD_K = 0.018, ICE_TILT_MAX = 0.07, ICE_SINK = 0.4;
 
 // Karanlık ızgara: boşlukta asılı parlak karolar. Karolar dalga ve pistonlarla yükselip
 // üstündekini havaya fırlatır.
@@ -418,13 +421,16 @@ export class World {
     this.overSpeed = e.overSpeed || 0;  // duvarın üstünden devrilmek için gereken hız
     this.fallDepth = e.fallDepth || 0.9;
     this.gx = this.gz = this.gvx = this.gvz = this.tgx = this.tgz = 0;
+    this.loadX = this.loadZ = 0;
+    this.slideMin = e.floe ? 0.004 : 0.07; // buz kaygan: çok az eğimde bile kaydırır
+    this.slideGain = e.floe ? 2.5 : 1;
     this.noStick = !!e.grid;            // hareketli karoya kılıç saplanmasın
     if (e.roof) this.resetRoof();
     if (e.grid) this.resetGrid();
   }
 
   // Platform seviyesinde lekeler platformun yerel uzayında tutulur (yan yatınca onunla gider).
-  get decalLocal() { return !!(this.env && (this.env.roof || this.env.grid)); }
+  get decalLocal() { return !!(this.env && (this.env.roof || this.env.grid || this.env.floe)); }
   get ropes() { return this.env && this.env.roof ? this.env.ropes : null; }
   get grid() { return !!(this.env && this.env.grid); }
   get tilt() { return Math.hypot(this.tgx, this.tgz); }
@@ -438,7 +444,9 @@ export class World {
     }
     if (e.roof) return Math.abs(x) <= e.half && Math.abs(z) <= e.half ? this.gx * x + this.gz * z : -Infinity;
     if (!e.floe) return 0;
-    return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) ? 0 : -Infinity;
+    if (Math.hypot(x, z) >= this.floeRadius(Math.atan2(z, x))) return -Infinity;
+    const y = this.gx * x + this.gz * z;
+    return y < e.waterY - ICE_SINK ? -Infinity : y; // gömülen kenar su olur
   }
 
   inside(x, z, m) {
@@ -503,6 +511,12 @@ export class World {
     this.sky.position.copy(camPos);
     if (this.env.water) this.env.water.material.uniforms.time.value = this.t;
     if (this.env.roof) this.renderRoof(camPos);
+    if (this.env.floe) {
+      // Buzun eğimi: platformdaki gibi kayma matrisi (dikeyler dik kalır).
+      const pl = this.env.plat;
+      pl.matrix.set(1, 0, 0, 0, this.gx, 1, this.gz, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+      pl.matrixWorldNeedsUpdate = true;
+    }
     if (this.env.grid) this.renderGrid();
     for (const c of this.env.clouds || []) {
       c.position.x += dt * 0.6;
@@ -727,17 +741,38 @@ export class World {
   }
 
   // Kalan halatların ağırlık merkezi ortadan kaydıkça platform halatsız tarafa yatar.
-  updateTilt() {
+  // jolt: halat yeni koptuysa platform hedefi biraz aşıp sallanarak oturur.
+  updateTilt(jolt = true) {
     const e = this.env;
     let n = 0, cx = 0, cz = 0;
     for (const r of e.ropes) if (r.intact) { cx += r.x; cz += r.z; n++; }
     if (n) { cx /= n; cz /= n; }
     let tx = TILT_K * cx / e.half, tz = TILT_K * cz / e.half;
+    // Az halatla platform dengesiz: üstündekilerin ağırlığı da onu yatırır (çapraz iki halat
+    // kaldıysa asıl belirleyen budur).
+    const unstable = n >= 4 ? 0 : n === 3 ? 0.3 : 1;
+    tx -= unstable * ROOF_LOAD_K * this.loadX; tz -= unstable * ROOF_LOAD_K * this.loadZ; // ağır yan aşağı
     const m = Math.hypot(tx, tz);
     if (m > TILT_MAX) { tx *= TILT_MAX / m; tz *= TILT_MAX / m; }
-    // Ani sarsıntı: hedefi biraz aşar, sallanarak oturur.
-    this.gvx += (tx - this.tgx) * 3; this.gvz += (tz - this.tgz) * 3;
+    if (jolt) { this.gvx += (tx - this.tgx) * 3; this.gvz += (tz - this.tgz) * 3; }
     this.tgx = tx; this.tgz = tz;
+  }
+
+  // Üstündekilerin ağırlık momenti (kenardaki bir kişi = 1). Buz ve platform eğimi için.
+  setLoad(chars) {
+    const e = this.env;
+    if (!e || !(e.floe || e.roof)) return;
+    const R = e.floe ? 15.5 : e.half;
+    let lx = 0, lz = 0;
+    for (const c of chars) {
+      if (c.S > 2 || c.falling) continue;
+      const P = c.rag.pts[J.PELVIS], x = c.alive ? c.x : P.x, z = c.alive ? c.z : P.z;
+      const g = this.ground(x, z);
+      if (g === -Infinity || (c.alive ? c.y : P.y) > g + 1.5) continue; // havada ya da suda
+      const w = c.alive ? 1 : 0.8;
+      lx += w * x / R; lz += w * z / R;
+    }
+    this.loadX = lx; this.loadZ = lz;
   }
 
   // hc: kesiğin zeminden yüksekliği. (vx, vz): bıçağın hızı (alt parça o yöne devrilir).
@@ -770,7 +805,9 @@ export class World {
   step(h, focus) {
     const e = this.env;
     if (e && e.grid) { this.stepGrid(h, focus); return; }
+    if (e && e.floe) { this.stepFloe(h); return; }
     if (!e || !e.roof) return;
+    this.updateTilt(false);
     const K = 18, C = 3.4;
     this.gvx += (K * (this.tgx - this.gx) - C * this.gvx) * h; this.gx += this.gvx * h;
     this.gvz += (K * (this.tgz - this.gz) - C * this.gvz) * h; this.gz += this.gvz * h;
@@ -781,6 +818,17 @@ export class World {
       }
       if (r.stub) this.stepStub(r, h);
     }
+  }
+
+  // Buz: ağırlık momentine göre eğim hedefi; ağır kütle yavaş, sallanarak yatar.
+  stepFloe(h) {
+    let tx = -ICE_LOAD_K * this.loadX, tz = -ICE_LOAD_K * this.loadZ; // ağır yan aşağı (zemin = gx*x + gz*z)
+    const m = Math.hypot(tx, tz);
+    if (m > ICE_TILT_MAX) { tx *= ICE_TILT_MAX / m; tz *= ICE_TILT_MAX / m; }
+    this.tgx = tx; this.tgz = tz;
+    const K = 5, C = 2.2;
+    this.gvx += (K * (tx - this.gx) - C * this.gvx) * h; this.gx += this.gvx * h;
+    this.gvz += (K * (tz - this.gz) - C * this.gvz) * h; this.gz += this.gvz * h;
   }
 
   stepStub(r, h) {
@@ -981,7 +1029,11 @@ export class World {
     const side = new THREE.MeshStandardMaterial({ color: 0x86b9e0, roughness: 0.3 });
     const slab = new THREE.Mesh(geo, [top, side]);
     slab.receiveShadow = true;
-    group.add(slab);
+    slab.castShadow = true;
+    const plat = new THREE.Group();
+    plat.matrixAutoUpdate = false;
+    plat.add(slab);
+    group.add(plat);
 
     const water = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), waterMaterial(0x4a4dc2, 0x8a8ff0));
     water.rotation.x = -Math.PI / 2;
@@ -1015,7 +1067,7 @@ export class World {
       group.add(c);
     }
     return {
-      group, floe, water, waterY: -0.35, canFall: true, radius: 16,
+      group, plat, floe, water, waterY: -0.35, canFall: true, radius: 16,
       clouds: this.clouds(group, 7, 170, 40, 80),
       sky: [0x8fc2ee, 0xf4f8fc, 0x6c70d0], fog: [35, 170],
       hemi: [0xeef6ff, 0x8aa6d6, 1.15], sun: [0xffffff, 2.5, -0.4, 1, 0.45],
