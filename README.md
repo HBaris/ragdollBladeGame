@@ -36,7 +36,14 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
 
 ## Oyun
 
-**Seviye döngüsü:** Düello → Düello → **Platform** → **Muharebe** → Düello → **Boss** → **At** → **Platform** → **Titan** → **Titan Muharebesi**, sonra zorlaşarak tekrar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer; çift numaralılar sırayla Buz Sahanlığı, Çayır ve Dojo'da (buz 2, 16, 32, 46… seviyelerde). Ayarlar (dişli) menüsündeki "Muharebe / Izgara / Buz / Platform / At / Titan / Titan muharebesi … git" düğmeleri doğrudan oralara atlar.
+**Seviye sırası:** İlk 13 seviye elle sıralı: Düello → Düello → **Platform** → **Muharebe** → **Testere Arenası** → Düello → **Boss** → **At** → **Fırtınalı Gemi** → **Dalga Savunması** → **Platform** → **Titan** → **Titan Muharebesi**. Sonraki her 13 seviyede aynı türler **karışık sırayla** gelir (seviye numarasından türetilir: aynı seviye her açılışta aynıdır, yan yana aynı tür gelmez); zorluk yavaşça artar. Tek numaralı düello/boss seviyeleri **Karanlık Izgara**'da geçer; çift numaralılar sırayla Buz Sahanlığı, Çayır ve Dojo'da. Ayarlar (dişli) menüsündeki "Doğrudan git" düğmeleri her türe atlar.
+
+**Değiştiriciler:** 15. seviyeden sonra seviyelerin bir kısmına rastgele (ama sabit) bir değiştirici eklenir, 40'tan sonra bazen iki; seviye başlığında yazar.
+- **GECE:** ay ışığı, karanlık gök, kısa görüş mesafesi ve sis (en sık).
+- **DEVLER:** rakipler 1,5 kat iri ve biraz yavaş.
+- **CÜCELER:** rakipler küçük, çevik ve iki kişi fazla.
+- **ÇİFT KILIÇLI DÜŞMAN:** rakiplerin de iki kılıcı var.
+- **TEK VURUŞ:** ilk darbe seni öldürür (nadir; titanlarda yok).
 
 - **Muharebe:** At sırtında, kalabalık bir düşman ordusuna karşı küçük bir ordu.
   - Düşman 14 kişiden başlar, her turda artar (en çok 24); dörtte biri atlı, kanatlardan gelir. Senin yanında 5 **mavi** müttefik var, ikisi atlı.
@@ -87,8 +94,20 @@ Kamera en yakın düşmana bakar. Yakın dövüşte yavaş döner ki joystick y�
   - Titanlar en çok sana sinirlidir ama dibindekileri de biçer; hançer birine saplanınca o savuruş biter. Hançer inmeden önce müttefikler (becerisine göre) geri sıçrar, buhar onları da savurur.
   - Kalabalıkta dost ateşi öldürmez, sadece iter ("HEY!"). Buhar halatlı dostların halatını da koparır.
   - Kamera en yakın titana kilitlenir; o düşünce sıradakine geçer. Halat attığında dokunduğun titana uçarsın.
+- **Testere Arenası:** Taş duvarlı, çelik zeminli bir halka; üç dönen bıçak kolu (ikisi diz, biri bel hizasında) değdiği **herkesi** keser: seni, rakipleri, cesetleri. Sarı-siyah şerit kolun menzilini gösterir. Kollar sürekli dönmez: yaklaşık 5 saniye döner, yavaşlayıp durur, 2,6 saniye dinlenir, sonra yeniden hızlanır (her kolun ritmi farklı). Dururken kesmez. Rakipler dönen kolun etrafından dolaşmaya çalışır ama herkes aynı dikkatte değildir; acemiler kolun yoluna girer, seni kovalarken dikkatleri dağılır.
+- **Fırtınalı Gemi:** Yağmur altında, şimşekler çakarken dalgalarla yalpalayan bir güverte (direkler de yatar). Güverte yattıkça herkes alçak yana kayar; ara ara **BÜYÜK DALGA** gelir (önce hangi yana yatacağı yazar): o sırada alçak küpeşteye kayan denize düşer, yüksek yana koş. Darbeyle küpeşteden savrulan da denize düşer.
+- **Dalga Savunması:** Dojo arenasında art arda gelen, gittikçe kalabalıklaşan rakip dalgaları (4–6 dalga, sonuncusunda boss). Sahadakiler bire inince ya da 22 sn geçince sıradaki dalga arenanın senden uzak kenarından gelir.
+- **Alçak duvar ve küpeşte:** Kendi koşunla çarpınca devrilmezsin; sadece darbeyle savrulurken ya da hızla kayarken üstünden aşarsın. Rakipler koşarken hızla çarparsa devrilir.
 - **Boss** (düello döngüsünde): daha iri ve 3 canlı, ama ağırkanlı (yavaş hazırlanır, seyrek saldırır); son canına kadar hiçbir yeri kopmaz.
 - **Ortamlar:** Düellolarda Karanlık Izgara ile Çayır (~56 m), Buz Sahanlığı (~32 m, kenardan suya düşen ölür; buz yüzer: üstündekilerin, cesetler dahil, ağırlığı hangi yana toplanırsa o yan suya gömülür, suyun 40 cm altında kalan buz su sayılır ve orada duran batar; buz kaygandır, yatınca herkes alçak kenara kayar) ve Gün Batımı Dojo (~44 m) dönüşümlü gelir. At ve titan seviyeleri 124 m'lik bir çayırda, platform seviyeleri gökyüzünde geçer.
+
+## Ses ve müzik
+
+Bütün sesler ve müzik kodla, anlık üretilir (WebAudio); ses dosyası yoktur. Ses motoru ilk dokunuşta açılır (tarayıcı kuralı). iPhone'un sessiz anahtarı açıksa web sesleri duyulmaz.
+
+- **Müzik:** Dört üslup. Düello, arena ve platformda samuray (pentatonik koto + taiko), muharebe, at ve dalga savunmasında savaş (dörtnala ritim), titanlarda destansı (ağır davul + koro dolgusu), gemide denizci (6/8). Dövüşün yoğunluğuna göre katman ekler: menüde ve seviye bitince bas ve zil, seviye sürerken davullar, rakip 6 metreye girince ya da titan yakındayken melodi. Ayarlarda ayrı "Müzik: Açık/Kapalı" düğmesi (tercih hatırlanır); "Ses" düğmesi her şeyi kısar.
+- **Efektler:** kılıç savurma, kesme, yaralanma, klang, düşme, drift, kılıcın yere sürtünmesi, halat kopması, titan buharı, savaş borusu (yeni dalga), büyük dalga, gök gürültüsü, halat atma ve kancanın saplanması, at nalı, titan adımları (yakındaysa kamera da sarsılır), testere vızıltısı, düğme tıkı.
+- **Ortam sesi:** Gemide deniz ve fırtına, buzda ve platformda rüzgâr.
 
 ## Geliştirme
 

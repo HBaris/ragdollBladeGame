@@ -342,6 +342,7 @@ export class Character {
 
   // Altındaki karo hızla yükseliyor: havaya (halka dalgasında biraz da dışarı) fırla.
   launch(tm) {
+    if (this.isPlayer && this.launchT <= 0) Sfx.jump(1.3);
     this.vy = Math.max(this.vy, Math.min(tm.vy * 1.1, 12));
     this.y = this.gy + 0.13;
     if (this.launchT <= 0) {
@@ -421,6 +422,38 @@ export class Character {
         if (this.y <= this.gy && !this.falling && Math.random() < dt * 2.2) this.vy = rand(3.2, 4.5);
         break;
     }
+    const traps = g.world.traps;
+    if (traps && (this.state === 'approach' || this.state === 'panic' || this.state === 'fight')) this.avoidTraps(traps, this.state === 'fight');
+  }
+
+  // Dönen (ya da birazdan dönecek) testere kollarının etrafından dolaşır, içindeyse dışarı kaçar.
+  // Herkes aynı dikkatte değil: acemi geç fark eder; itilip savrulan zaten kaçamaz.
+  avoidTraps(traps, onlyInside) {
+    const st = this.stickW;
+    if (this.trapSense === undefined) this.trapSense = rand(0.3, 0.7) + this.skill * 0.25;
+    const sense = this.trapSense;
+    let vx = st.x * st.mag, vz = st.z * st.mag, changed = false;
+    for (const sp of traps) {
+      if (!sp.danger) continue;
+      const dx = this.x - sp.x, dz = this.z - sp.z, d = Math.hypot(dx, dz) || 0.01;
+      const R = sp.r + 0.7 * this.S, look = R + 2.6 * sense;
+      if (d > look) continue;
+      const nx = dx / d, nz = dz / d;
+      if (d < R) { vx += nx * 1.1 * sense; vz += nz * 1.1 * sense; changed = true; continue; }
+      if (onlyInside) continue;
+      const inward = -(vx * nx + vz * nz);
+      if (inward <= 0) continue;
+      // İçeri giden bileşeni sil, kolun etrafından teğet yönde dolaş.
+      const w = clamp((look - d) / (look - R), 0, 1) * sense;
+      const tx = -nz, tz = nx, side = Math.sign(vx * tx + vz * tz) || 1;
+      vx += (nx + tx * side * 0.8) * inward * w;
+      vz += (nz + tz * side * 0.8) * inward * w;
+      changed = true;
+    }
+    if (!changed) return;
+    const m = Math.hypot(vx, vz);
+    if (m < 1e-3) return;
+    st.x = vx / m; st.z = vz / m; st.mag = clamp(m, 0.3, 0.95);
   }
 
   // Karşı takımın en yakınını hedefler; hedef yapışkandır (başkası çok daha yakın olmadıkça
@@ -708,11 +741,14 @@ export class Character {
   }
 
   // Alçak duvarın üstünden devrilme: sadece hızla (darbe ya da kayma) çarparsan.
+  // Alçak duvar/küpeşte. Oyuncu kendi koşusuyla çarpınca devrilmez; sadece darbeyle savrulurken
+  // ya da kayarken aşar. Rakipler (koşu dahil) hızla çarparsa devrilir.
   overWall(env, mvx, mvz) {
     if (!env.wallH) return false;
-    const ax = Math.abs(this.x), az = Math.abs(this.z);
-    const nx = ax > az ? Math.sign(this.x) : 0, nz = ax > az ? 0 : Math.sign(this.z);
-    if (nx * mvx + nz * mvz < env.overSpeed) return false;
+    const [nx, nz] = env.wallNormal(this.x, this.z);
+    const own = this.isPlayer && this.kb <= 0;
+    const vx = own ? this.slideX : mvx, vz = own ? this.slideZ : mvz;
+    if (nx * vx + nz * vz < env.overSpeed) return false;
     this.falling = true;
     this.vx = mvx; this.vz = mvz; this.slideX = 0; this.slideZ = 0;
     this.vy = 3; this.kb = 1;

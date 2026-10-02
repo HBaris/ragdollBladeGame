@@ -19,11 +19,22 @@ const ALLY_COLOR = 0x4fb4ff;
 const FLYER_COLOR = 0x3fd6c8; // halatlı dostlar biraz yeşilimsi: ayırt edilsin
 const BOSS_COLOR = 0x6a12c2;
 const TITAN_COLOR = 0xb45cf0;
-const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara' };
+const ENV_NAMES = { meadow: 'Çayır', ice: 'Buz Sahanlığı', dojo: 'Gün Batımı Dojo', roof: 'Halatlı Platform', grid: 'Karanlık Izgara', saw: 'Testere Arenası', ship: 'Fırtınalı Gemi' };
 // Düello ortamları: tek numaralı düello/boss seviyeleri karanlık ızgara; çift numaralılar buz,
 // çayır ve dojo arasında sırayla döner.
 const DUEL_ENVS = ['ice', 'meadow', 'dojo'];
-const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'duel', 'boss', 'horse', 'roof', 'titan', 'titanwar'];
+// İlk tur elle sıralı (zorluk yavaşça artar); sonraki her turda aynı türler karışık sırayla
+// gelir (seviye numarasından türetilir: aynı seviye hep aynıdır), yan yana aynı tür gelmez.
+const LEVEL_CYCLE = ['duel', 'duel', 'roof', 'battle', 'saw', 'duel', 'boss', 'horse', 'ship', 'waves', 'roof', 'titan', 'titanwar'];
+// Değiştiriciler: 15. seviyeden sonra seviyelere rastgele eklenir (aynı seviye hep aynı).
+const MUTATORS = {
+  night: { name: 'GECE', w: 3, types: ['duel', 'boss', 'roof', 'battle', 'saw', 'horse', 'ship', 'waves', 'titan', 'titanwar'] },
+  giants: { name: 'DEVLER', w: 2, types: ['duel', 'boss', 'roof', 'saw', 'ship', 'waves'] },
+  dwarves: { name: 'CÜCELER', w: 2, types: ['duel', 'roof', 'saw', 'ship', 'waves'] },
+  dual: { name: 'ÇİFT KILIÇLI DÜŞMAN', w: 2, types: ['duel', 'boss', 'roof', 'battle', 'saw', 'ship', 'waves'] },
+  onehit: { name: 'TEK VURUŞ', w: 0.7, types: ['duel', 'boss', 'roof', 'saw', 'ship', 'waves'] }, // en acımasızı: nadir
+};
+const MUTATOR_FROM = 15;
 // Boyun darbe sayısı (son darbe keser). Son kesiş yeni bir dalış ister: iki bıçak aynı
 // dalışta hem son darbeyi vurup hem kesemez. Çift kılıçla temiz üç dalış.
 const TITAN_NECK_HP = 4, NECK_CUT_GAP = 0.8;
@@ -45,18 +56,88 @@ function duelEnv(n) {
   if (n % 2) return 'grid';
   let k = 0;
   for (let m = 2; m < n; m += 2) {
-    const t = LEVEL_CYCLE[(m - 1) % LEVEL_CYCLE.length];
+    const t = typeAt(m);
     if (t === 'duel' || t === 'boss') k++;
   }
   return DUEL_ENVS[k % DUEL_ENVS.length];
 }
 
+// Seviye numarasından sabit rastgele sayı üreteci (aynı seviye her açılışta aynı çıkar).
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+// Turun sırası: ilk tur sabit, sonrakiler karışık; tur sınırında da aynı tür üst üste gelmez.
+const _rounds = [LEVEL_CYCLE.slice()];
+function roundOrder(r) {
+  while (_rounds.length <= r) {
+    const k = _rounds.length, rnd = seeded(9173 + k * 7919), prev = _rounds[k - 1][LEVEL_CYCLE.length - 1];
+    let o;
+    // Karıştır; yan yana aynı tür (tur sınırı dahil) çıkarsa yeniden karıştır.
+    for (let tries = 0; tries < 200; tries++) {
+      o = LEVEL_CYCLE.slice();
+      for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+      if (o.every((t, i) => t !== (i ? o[i - 1] : prev))) break;
+    }
+    _rounds.push(o);
+  }
+  return _rounds[r];
+}
+export function typeAt(n) {
+  const L = LEVEL_CYCLE.length, r = Math.floor((n - 1) / L);
+  return roundOrder(r)[(n - 1) % L];
+}
+
+// 15. seviyeden sonra bir değiştirici (40'tan sonra bazen iki), seviye numarasından türetilir.
+function mutatorsFor(n, type) {
+  if (n < MUTATOR_FROM) return [];
+  const rnd = seeded(n * 2654435761);
+  const p = Math.min(0.7, 0.4 + 0.015 * (n - MUTATOR_FROM));
+  if (rnd() > p) return [];
+  const pool = Object.keys(MUTATORS).filter((k) => MUTATORS[k].types.includes(type));
+  const out = [];
+  const count = n >= 40 && rnd() < 0.3 ? 2 : 1;
+  while (out.length < count && pool.length) {
+    // Ağırlıklı seçim: gece sık, tek vuruş nadir.
+    let x = rnd() * pool.reduce((a, k) => a + MUTATORS[k].w, 0), idx = 0;
+    while (idx < pool.length - 1 && (x -= MUTATORS[pool[idx]].w) > 0) idx++;
+    const k = pool.splice(idx, 1)[0];
+    if ((k === 'giants' && out.includes('dwarves')) || (k === 'dwarves' && out.includes('giants'))) continue;
+    out.push(k);
+  }
+  return out;
+}
+
 // Seviye tasarımı: düello, düello, platform, muharebe, düello, boss, at, platform, titan,
 // titan muharebesi döngüsü; zorluk yavaşça artar.
 export function levelSpec(n) {
-  const type = LEVEL_CYCLE[(n - 1) % LEVEL_CYCLE.length];
+  const spec = baseSpec(n);
+  spec.mutators = mutatorsFor(n, spec.type);
+  if (spec.mutators.includes('dwarves')) for (let i = 0; i < 2; i++) spec.enemies.push('normal');
+  return spec;
+}
+
+function baseSpec(n) {
+  const type = typeAt(n);
   const round = Math.floor((n - 1) / LEVEL_CYCLE.length);
   const skill = clamp((n - 1) / 24, 0, 1);
+  // Dalga savunması: dojo arenasında art arda gelen, gittikçe kalabalıklaşan dalgalar.
+  if (type === 'waves') {
+    const waves = [];
+    const W = Math.min(6, 4 + round);
+    for (let w = 0; w < W; w++) {
+      const g = [];
+      for (let i = 0; i < Math.min(7, 2 + w + Math.floor(round / 2)); i++) g.push('normal');
+      if (w === W - 1) g.push('boss');
+      waves.push(g);
+    }
+    return { type, env: 'dojo', big: false, skill: skill * 0.85, boss: false, enemies: waves[0], waves };
+  }
+  // Testere arenası: dönen dev bıçaklar herkesi keser.
+  if (type === 'saw') return { type, env: 'saw', big: false, skill, boss: false, enemies: new Array(Math.min(5, 3 + round)).fill('normal') };
+  // Fırtınalı gemi: dalgalarla sallanan güverte, düşen boğulur.
+  if (type === 'ship') return { type, env: 'ship', big: false, skill, boss: false, enemies: new Array(Math.min(5, 2 + round)).fill('normal') };
   // Halatlı platform küçük: sadece normal düşmanlar sığar.
   if (type === 'roof') return { type, env: 'roof', big: false, skill, boss: false, enemies: new Array(Math.min(4, 2 + round)).fill('normal') };
   if (type === 'horse') return { type, env: 'meadow', big: true, skill, boss: false, enemies: new Array(Math.min(6, 3 + round)).fill('big') };
@@ -222,6 +303,14 @@ export class Game {
     this.spec = spec;
     this.world.set(spec.env, spec.big);
     this.fx.setDecalParent(this.world.env.plat || this.scene);
+    const mut = spec.mutators || [];
+    if (mut.includes('night')) this.world.applyNight();
+    this.oneHit = mut.includes('onehit');
+    // Dalga savunması: ilk dalga hemen, gerisi sırayla. Gemi: büyük dalga ve şimşek sayaçları.
+    this.foeWaves = spec.waves ? spec.waves.slice(1) : null;
+    this.foeWaveNo = 1; this.foeWaveT = 0;
+    this.shipWaveT = rand(9, 13); this.shipWarned = false; this.lightT = rand(4, 8);
+    this.trapHit = new Map();
     this.tiltWarned = false;
     this.titanHinted = false;
     const mounted = spec.type === 'horse' || spec.type === 'battle';
@@ -261,6 +350,9 @@ export class Game {
           color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 3.2 : lerp(3.4, 5.4, spec.skill),
         });
       }
+      if (spec.env === 'ship' && !o.titan) { o.x = (i - (m - 1) / 2) * 1.5; o.z = 4.5 + (i % 2) * 1.6; }
+      if (spec.type === 'waves') { const a = (m > 1 ? i / (m - 1) - 0.5 : 0) * 2.2; o.x = Math.sin(a) * 16; o.z = Math.cos(a) * 16; }
+      this.mutate(o, type);
       const e = this.addChar(o);
       if (e.titan) { this.titan = this.titan || e; this.titans.push(e); e.neckHp = TITAN_NECK_HP; e.steamT = rand(5, 7) + i * 1.7; }
       if (type === 'cav') this.mountOn(e, 0x2b2522, 0x0f0c0b);
@@ -284,13 +376,109 @@ export class Game {
     this.camTarget = null;
     this.updateCamera(0, true);
     this.hud.setLevel(n);
-    const sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'titanwar' ? `TİTAN MUHAREBESİ! ${m} titan, ${this.allies.length} dost` : spec.type === 'battle' ? `MUHAREBE! ${m} düşman` : spec.type === 'horse' ? 'At Sırtında' : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
-    this.hud.show(`SEVİYE ${n}`, sub, 1.8, spec.boss || this.titanMode || spec.type === 'battle' ? 'boss' : '');
+    let sub = spec.type === 'titan' ? 'TİTAN!' : spec.type === 'titanwar' ? `TİTAN MUHAREBESİ! ${m} titan, ${this.allies.length} dost` : spec.type === 'battle' ? `MUHAREBE! ${m} düşman` : spec.type === 'horse' ? 'At Sırtında' : spec.type === 'waves' ? `DALGA SAVUNMASI! ${spec.waves.length} dalga` : spec.boss ? 'BOSS!' : ENV_NAMES[spec.env];
+    if (mut.length) sub += ' · ' + mut.map((k) => MUTATORS[k].name).join(' · ');
+    this.hud.show(`SEVİYE ${n}`, sub, mut.length ? 2.6 : 1.8, spec.boss || this.titanMode || spec.type === 'battle' || spec.type === 'waves' || mut.length ? 'boss' : '');
     if ((spec.type !== 'duel' && spec.type !== 'boss') || spec.env === 'grid' || spec.env === 'ice') this.hintT = Math.max(this.hintT, 6);
+    const t = spec.type;
+    Sfx.music(this.titanMode ? 'epic' : t === 'battle' || t === 'horse' || t === 'waves' ? 'war' : t === 'ship' ? 'sea' : 'samurai');
+    Sfx.ambience(spec.env === 'ship' ? 'sea' : spec.env === 'ice' || spec.env === 'roof' ? 'wind' : null);
     this.input.clear();
   }
 
   restartLevel() { this.startLevel(this.level); }
+
+  // Değiştiriciler düşmanı değiştirir: devler iri ve yavaş, cüceler küçük ve çevik, çift kılıç.
+  mutate(o, type) {
+    const mut = this.spec.mutators || [];
+    if (o.titan || type === 'cav') return;
+    if (mut.includes('giants')) { o.scale = (o.scale || 1) * 1.5; o.speed = (o.speed || 3) * 0.8; }
+    if (mut.includes('dwarves')) { o.scale = (o.scale || 1) * 0.7; o.speed = (o.speed || 3) * 1.15; }
+    if (mut.includes('dual')) o.dual = true;
+  }
+
+  // Dalga savunması: arenanın kenarından, oyuncudan uzakta yeni bir dalga.
+  spawnWave(types) {
+    const spec = this.spec, pl = this.player, n = types.length;
+    const base = Math.atan2(-pl.x, -pl.z); // oyuncunun karşı tarafı
+    types.forEach((type, i) => {
+      const boss = type === 'boss';
+      const a = base + (n > 1 ? i / (n - 1) - 0.5 : 0) * 2.4 + rand(-0.15, 0.15), r = 17.5;
+      const o = {
+        team: 'enemy', yaw: a + Math.PI, x: Math.sin(a) * r, z: Math.cos(a) * r,
+        hp: boss ? 3 : 1, armored: boss, scale: boss ? 1.38 : 1, boss,
+        skill: boss ? spec.skill * 0.5 : spec.skill, color: boss ? BOSS_COLOR : ENEMY_COLOR, speed: boss ? 3.2 : lerp(3.4, 5.4, spec.skill),
+      };
+      this.mutate(o, type);
+      const e = this.addChar(o);
+      e.state = 'approach';
+      this.enemies.push(e);
+    });
+    this.foeWaveNo++;
+    this.foeWaveT = 0;
+    this.fx.popup(pl.x, pl.y + 2.6, pl.z, `DALGA ${this.foeWaveNo}/${spec.waves.length}`, '#ffb347', 26, 1.4);
+    Sfx.horn();
+  }
+
+  // Dalga sırası: sahadaki rakipler azalınca (ya da 22 sn geçince) sıradaki dalga gelir.
+  stepWaves(h) {
+    if (!this.foeWaves || !this.foeWaves.length || this.phase !== 'play') return;
+    this.foeWaveT += h;
+    const alive = this.enemies.filter((e) => e.alive).length;
+    if (alive <= 1 || this.foeWaveT > 22) this.spawnWave(this.foeWaves.shift());
+  }
+
+  // Testere kolları: değdiği herkesi (oyuncu, rakip, ceset) keser; aynı kola kısa aralıkla bir kez.
+  trapHits(h) {
+    const traps = this.world.traps;
+    if (!traps) return;
+    const pl = this.player;
+    for (const sp of traps) {
+      if (!sp.prev) continue;
+      const pd = Math.abs(Math.hypot(pl.x - sp.x, pl.z - sp.z) - sp.r * 0.6);
+      if (pd < sp.r + 3 && sp.k > 0.15) Sfx.saw((1 - pd / (sp.r + 3)) * sp.k);
+      if (!sp.armed) continue;
+      if (!sp.actor) sp.actor = { isPlayer: false, titan: false, side: -1, team: 'trap', x: sp.x, z: sp.z, swordMesh: null, curEp: null };
+      const pb = sp.prev, cb = sp.cur;
+      for (const o of this.chars) {
+        const dx = o.x - sp.x, dz = o.z - sp.z;
+        if (o.alive ? Math.hypot(dx, dz) > sp.r + 1.2 : false) continue;
+        const key = sp.x * 1000 + sp.z;
+        const m = this.trapHit.get(o) || {};
+        if (this.time < (m[key] || 0)) continue;
+        const bb = o.rag.bounds(this._bb);
+        if (bb.y0 > sp.h + 0.2 || bb.y1 < sp.h - 0.2) continue;
+        const hit = sweepRagdoll(o.rag, pb, cb, 3);
+        if (!hit) continue;
+        m[key] = this.time + 0.45;
+        this.trapHit.set(o, m);
+        // Kolun ucunun hızı: dönüş yönünde, yarıçapla orantılı.
+        const tx = -(hit.z - sp.z), tz = hit.x - sp.x, tl = Math.hypot(tx, tz) || 1, sv = Math.sign(sp.w) * 9 * sp.k;
+        sp.actor.x = sp.x; sp.actor.z = sp.z;
+        this.onHit(sp.actor, o, hit, tx / tl * sv, 1, tz / tl * sv);
+        Sfx.slice();
+      }
+    }
+  }
+
+  // Gemi: ara ara büyük dalga (önce uyarı) ve şimşek.
+  shipEvents(h) {
+    const pl = this.player;
+    this.shipWaveT -= h;
+    if (!this.shipWarned && this.shipWaveT < 1.6) {
+      this.shipWarned = true;
+      this.shipWaveDir = Math.random() < 0.5 ? -1 : 1;
+      this.fx.popup(pl.x, pl.y + 2.6, pl.z, this.shipWaveDir > 0 ? 'BÜYÜK DALGA! (sol yana)' : 'BÜYÜK DALGA! (sağ yana)', '#9be7ff', 24, 1.5);
+      Sfx.wave();
+    }
+    if (this.shipWaveT <= 0) {
+      this.world.bigWave = { t: 0, dir: this.shipWaveDir };
+      this.shipWaveT = rand(11, 17); this.shipWarned = false;
+      this.shake(0.12);
+    }
+    this.lightT -= h;
+    if (this.lightT <= 0) { this.lightT = rand(6, 12); this.world.flash(); Sfx.thunder(); }
+  }
 
   // type: 'foot' piyade, 'cav' atlı, 'flyer' halatla uçan (çift kılıçlı).
   spawnAlly(type, x, z) {
@@ -342,7 +530,7 @@ export class Game {
       valid: () => t.alive && rag.pts[idx].attached,
     };
     if (c.y < c.gy + 0.05) { c.vy = Math.max(c.vy, 4.5); c.y = c.gy + 0.03; }
-    if (this.near(c, 14)) Sfx.swoosh(2);
+    if (this.near(c, 14)) Sfx.rope();
   }
 
   // Karakteri kendi rengindeki bir ata bindirir.
@@ -403,6 +591,7 @@ export class Game {
     this.shakeAmt *= Math.exp(-8 * dt);
     this.hud.update(dt);
     this.updateCamera(dt, false);
+    this.musicIntensity();
     this.render(dt);
     this.input.endFrame(dt);
   }
@@ -414,12 +603,37 @@ export class Game {
     this.world.step(h, this.player);
     for (const t of this.titans) if (t.alive) { this.titanSteam(t, h); this.titanDodge(t); }
     if (this.spec.type === 'titanwar') this.allyWaves(h);
+    if (this.foeWaves) this.stepWaves(h);
+    if (this.world.env.ship && this.phase === 'play') this.shipEvents(h);
     for (const hs of this.horses) {
       const r = hs.rider;
       hs.update(h, r && r.alive ? r.stickW : null, this.world);
       // Drift atan atın toynaklarından toz kalkar.
       if (hs.slip > 0.35 && Math.random() < h * 30 * hs.slip) this.fx.dust(hs.x + rand(-0.5, 0.5), 0.05, hs.z + rand(-0.8, 0.8), -hs.vx * 0.15, -hs.vz * 0.15);
       if (r === this.player && hs.slip > 0.55) Sfx.skid();
+      // Nal sesleri: adım döngüsünde dört vuruş; yakındaki atlar duyulur.
+      const beat = Math.floor(hs.phase / (Math.PI / 2));
+      if (beat !== hs._beat) {
+        hs._beat = beat;
+        const sp = Math.hypot(hs.vx, hs.vz), d = Math.hypot(hs.x - this.player.x, hs.z - this.player.z);
+        if (sp > 1.5) Sfx.hoof(Math.min(1, sp / 9) * Math.max(0, 1 - d / 22));
+      }
+    }
+    // Titan adımları: ayak yere değdiği an gümbürtü (yakındaysa kamera da sarsılır).
+    for (const t of this.titans) {
+      if (!t.alive) continue;
+      for (const fi of [J.LFOOT, J.RFOOT]) {
+        const F = t.rag.pts[fi];
+        if (!F.attached) continue;
+        const down = F.y < t.gy + 0.9 && F.y - F.py < 0;
+        const key = fi === J.LFOOT ? '_stepL' : '_stepR';
+        if (down && !t[key]) {
+          const d = Math.hypot(t.x - this.player.x, t.z - this.player.z), v = Math.max(0, 1 - d / 45);
+          Sfx.titanStep(v);
+          if (d < 14) this.shake(0.05 * (1 - d / 14));
+        }
+        t[key] = down;
+      }
     }
     for (const c of this.chars) { c.copyBlade(); c.update(h); }
     this.separate();
@@ -438,8 +652,24 @@ export class Game {
     }
     for (const l of this.loose) l.step(h, hp, env);
     this.combat(h);
+    if (this.world.traps) this.trapHits(h);
     this.fx.update(h, env);
     this.lastH = h;
+  }
+
+  // Müziğin yoğunluğu: yakındaki rakip sayısı (titan ve büyük kalabalık daha çok sayılır).
+  musicIntensity() {
+    const pl = this.player;
+    let k = 0;
+    if (this.phase === 'play' && pl.alive) {
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const d = Math.hypot(e.x - pl.x, e.z - pl.z);
+        if (e.titan) k += d < 30 ? 2.2 : 0.6; else if (d < 9) k += 1 - d / 12;
+      }
+      k += 0.7; // seviye sürerken davul hep çalar; düşman 6 m'ye girince melodi de
+    }
+    Sfx.intensity(k / 2.4);
   }
 
   slowmo(dur, scale) {
@@ -558,7 +788,8 @@ export class Game {
     }
     pl.rope = rope;
     if (pl.y < 0.05) { pl.vy = Math.max(pl.vy, 4.5); pl.y = 0.03; }
-    Sfx.swoosh(2);
+    Sfx.rope();
+    if (hit) Sfx.thunk();
   }
 
   pickTitan(t, sx, sy) {
@@ -1033,6 +1264,16 @@ export class Game {
     if (o.invuln > 0) return;
     const rag = o.rag;
     const kind = hit.head ? 'neck' : rag.bones[hit.bone].kind;
+    if (this.oneHit) {
+      // Tek vuruş değiştiricisi: ilk darbe öldürür.
+      const r1 = kind === 'torso' ? null : this.applyCut(rag, hit);
+      this.gore(rag, r1, hit, vx, vy, vz);
+      this.hud.flash = 0.6;
+      o.die();
+      rag.addVel(vx * 0.5, 3, vz * 0.5, this.h);
+      this.lose('Tek vuruş: bir darbe yetti.');
+      return;
+    }
     this.hud.flash = 0.6;
     this.shake(0.15);
     this.cancelSwing(o);
@@ -1104,6 +1345,7 @@ export class Game {
   checkWin() {
     if (this.phase !== 'play') return;
     if (this.enemies.some((e) => e.alive)) return;
+    if (this.foeWaves && this.foeWaves.length) { this.spawnWave(this.foeWaves.shift()); return; }
     this.phase = 'win';
     this.endT = 0;
     this.slowmo(1.1, 0.2);

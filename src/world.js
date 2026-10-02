@@ -308,6 +308,21 @@ const ROPE_LAYOUT = [[8.4, 8.4], [-8.4, 8.4], [8.4, -8.4], [-8.4, -8.4]];
 const TILT_K = 0.56, TILT_MAX = 0.42; // halat ağırlık merkezi kaydıkça eğim (dy/dx)
 const ROOF_LOAD_K = 0.05;             // dengesiz platformda kenardaki bir kişinin eğime katkısı
 
+// Testere arenası: dönen kollar [x, z, yarıçap, yükseklik, açısal hız, ritim kayması (s)].
+// İkisi diz, biri bel hizası. Kollar sürekli dönmez: dönüp durur, dinlenir, yeniden hızlanır
+// (sürekli dönünce ortadaki kol herkesi ilk 2 saniyede biçip dövüşü kendi bitiriyordu).
+const SPINNERS = [[0, 0.5, 3.4, 0.42, 2.3, 6.3], [-8.5, 8, 3.0, 0.95, -2.7, 0], [8.5, 8, 3.0, 0.42, 2.6, 3.4]];
+const SAW_ON = 5, SAW_DOWN = 0.9, SAW_OFF = 2.6, SAW_UP = 0.8;
+const SAW_CYCLE = SAW_ON + SAW_DOWN + SAW_OFF + SAW_UP;
+// Gemi güvertesi: z boyunca yarı uzunluk, yarı genişlik (pruvaya doğru daralır), direkler.
+const SHIP_L = 12, SHIP_W = 4.4;
+const MASTS = [[0, -3.5], [0, 4]];
+function shipHalfW(z) {
+  if (z > 6) return SHIP_W + (1.1 - SHIP_W) * Math.min(1, (z - 6) / (SHIP_L - 6));
+  if (z < -10) return SHIP_W - 0.8 * Math.min(1, (-10 - z) / 2);
+  return SHIP_W;
+}
+
 // Buz sahanlığı yüzer: üstündekilerin (cesetler dahil) ağırlığı hangi yana toplanırsa o yan
 // suya gömülür. Suyun ICE_SINK kadar altında kalan buz su sayılır: orada duran batar.
 const ICE_LOAD_K = 0.018, ICE_TILT_MAX = 0.07, ICE_SINK = 0.4;
@@ -387,7 +402,11 @@ export class World {
       dojo: this.buildDojo(),
       roof: this.buildRoof(),
       grid: this.buildGrid(),
+      saw: this.buildSaw(),
+      ship: this.buildShip(),
     };
+    this.flashT = 0; this.night = false;
+    this.bigWave = null;
     this._m4 = new THREE.Matrix4();
     this._col = new THREE.Color();
     for (const e of Object.values(this.envs)) { e.group.visible = false; scene.add(e.group); }
@@ -413,6 +432,7 @@ export class World {
     u.top.value.set(e.sky[0]); u.horizon.value.set(e.sky[1]); u.bottom.value.set(e.sky[2]);
     this.scene.fog = new THREE.Fog(e.sky[1], e.fog[0], e.fog[1]);
     this.hemi.color.set(e.hemi[0]); this.hemi.groundColor.set(e.hemi[1]); this.hemi.intensity = e.hemi[2];
+    this.baseHemi = e.hemi[2];
     this.sun.color.set(e.sun[0]); this.sun.intensity = e.sun[1];
     this.sunDir.set(e.sun[2], e.sun[3], e.sun[4]).normalize();
     this.waterY = e.waterY;
@@ -422,6 +442,9 @@ export class World {
     this.fallDepth = e.fallDepth || 0.9;
     this.gx = this.gz = this.gvx = this.gvz = this.tgx = this.tgz = 0;
     this.loadX = this.loadZ = 0;
+    this.night = false; this.flashT = 0; this.bigWave = null; this.shipT = 0;
+    if (this.dayEnvI !== undefined) this.scene.environmentIntensity = this.dayEnvI;
+    if (e.spinners) for (const sp of e.spinners) { sp.a = sp.a0; sp.t = sp.t0; sp.k = 0; sp.prev = null; sp.cur = null; }
     this.slideMin = e.floe ? 0.004 : 0.07; // buz kaygan: çok az eğimde bile kaydırır
     this.slideGain = e.floe ? 2.5 : 1;
     this.noStick = !!e.grid;            // hareketli karoya kılıç saplanmasın
@@ -430,7 +453,8 @@ export class World {
   }
 
   // Platform seviyesinde lekeler platformun yerel uzayında tutulur (yan yatınca onunla gider).
-  get decalLocal() { return !!(this.env && (this.env.roof || this.env.grid || this.env.floe)); }
+  get decalLocal() { return !!(this.env && (this.env.roof || this.env.grid || this.env.floe || this.env.ship)); }
+  get traps() { return this.env && this.env.spinners ? this.env.spinners : null; }
   get ropes() { return this.env && this.env.roof ? this.env.ropes : null; }
   get grid() { return !!(this.env && this.env.grid); }
   get tilt() { return Math.hypot(this.tgx, this.tgz); }
@@ -443,6 +467,7 @@ export class World {
       return k < 0 ? -Infinity : e.h[k];
     }
     if (e.roof) return Math.abs(x) <= e.half && Math.abs(z) <= e.half ? this.gx * x + this.gz * z : -Infinity;
+    if (e.ship) return Math.abs(z) <= SHIP_L && Math.abs(x) <= shipHalfW(z) ? this.gx * x + this.gz * z : -Infinity;
     if (!e.floe) return 0;
     if (Math.hypot(x, z) >= this.floeRadius(Math.atan2(z, x))) return -Infinity;
     const y = this.gx * x + this.gz * z;
@@ -454,7 +479,19 @@ export class World {
     if (e.grid) return Math.abs(x) < e.half - m && Math.abs(z) < e.half - m;
     if (e.roof) return Math.abs(x) < e.inner - m && Math.abs(z) < e.inner - m;
     if (e.floe) return Math.hypot(x, z) < this.floeRadius(Math.atan2(z, x)) - m;
+    if (e.ship) {
+      if (Math.abs(z) >= SHIP_L - 0.25 - m || Math.abs(x) >= shipHalfW(z) - 0.25 - m) return false;
+      for (const [mx, mz] of MASTS) if (Math.hypot(x - mx, z - mz) < 0.4 + m) return false; // direkler
+      return true;
+    }
     return Math.hypot(x, z) < this.radius - m;
+  }
+
+  // Alçak duvarın/küpeştenin dış normali (devrilme yönü için).
+  wallNormal(x, z) {
+    const e = this.env;
+    if (e.ship) return Math.abs(x) / shipHalfW(z) > Math.abs(z) / SHIP_L ? [Math.sign(x), 0] : [0, Math.sign(z)];
+    return Math.abs(x) > Math.abs(z) ? [Math.sign(x), 0] : [0, Math.sign(z)];
   }
 
   // Sınırı aşan hareketi sınıra izdüşürür ve duvara giden hız bileşenini siler (c: karakter).
@@ -462,7 +499,13 @@ export class World {
   clampInside(x, z, m, c) {
     const e = this.env;
     if (e.floe) return false;
-    if (e.roof || e.grid) {
+    if (e.ship) {
+      const Lz = SHIP_L - 0.25 - m - 1e-3;
+      if (Math.abs(z) > Lz) { z = Math.sign(z) * Lz; c.vz = 0; c.slideZ = 0; }
+      const Lx = shipHalfW(z) - 0.25 - m - 1e-3;
+      if (Math.abs(x) > Lx) { x = Math.sign(x) * Lx; c.vx = 0; c.slideX = 0; }
+      for (const [mx, mz] of MASTS) if (Math.hypot(x - mx, z - mz) < 0.4 + m) return false;
+    } else if (e.roof || e.grid) {
       const L = (e.grid ? e.half : e.inner) - m - 1e-3;
       if (Math.abs(x) > L) { x = Math.sign(x) * L; c.vx = 0; c.slideX = 0; }
       if (Math.abs(z) > L) { z = Math.sign(z) * L; c.vz = 0; c.slideZ = 0; }
@@ -511,6 +554,19 @@ export class World {
     this.sky.position.copy(camPos);
     if (this.env.water) this.env.water.material.uniforms.time.value = this.t;
     if (this.env.roof) this.renderRoof(camPos);
+    if (this.env.ship) {
+      // Gemi gerçekten yalpalar: direkler de yatar (küçük açılarda zemin yüksekliğiyle uyumlu).
+      const pl = this.env.plat;
+      pl.rotation.set(-Math.asin(clamp(this.gz, -0.9, 0.9)), 0, Math.asin(clamp(this.gx, -0.9, 0.9)));
+      this.updateRain(dt, camPos);
+    }
+    if (this.env.spinners) {
+      for (const sp of this.env.spinners) { sp.arm.rotation.y = -sp.a; for (const d of sp.discs) d.rotation.y += dt * 30 * sp.k; }
+    }
+    if (this.flashT > 0) {
+      this.flashT = Math.max(0, this.flashT - dt);
+      this.hemi.intensity = this.baseHemi + 4 * this.flashT / 0.18;
+    }
     if (this.env.floe) {
       // Buzun eğimi: platformdaki gibi kayma matrisi (dikeyler dik kalır).
       const pl = this.env.plat;
@@ -806,6 +862,8 @@ export class World {
     const e = this.env;
     if (e && e.grid) { this.stepGrid(h, focus); return; }
     if (e && e.floe) { this.stepFloe(h); return; }
+    if (e && e.ship) { this.stepShip(h); return; }
+    if (e && e.spinners) { this.stepSaw(h); return; }
     if (!e || !e.roof) return;
     this.updateTilt(false);
     const K = 18, C = 3.4;
@@ -819,6 +877,63 @@ export class World {
       if (r.stub) this.stepStub(r, h);
     }
   }
+
+  // Gemi: dalgalar güverteyi yatırır (yalpa x, baş-kıç z); büyük dalga bir yana sert yatırır.
+  stepShip(h) {
+    const t = (this.shipT += h);
+    let roll = 0.15 * Math.sin(0.85 * t) + 0.05 * Math.sin(2.1 * t + 1.3);
+    const pitch = 0.05 * Math.sin(0.62 * t + 0.4) + 0.02 * Math.sin(1.7 * t);
+    const w = this.bigWave;
+    if (w) {
+      w.t += h;
+      const k = w.t < 0.9 ? w.t / 0.9 : w.t < 2.3 ? 1 : Math.max(0, 1 - (w.t - 2.3) / 1.2);
+      roll += w.dir * 0.24 * k;
+      if (w.t > 3.5) this.bigWave = null;
+    }
+    // Büyük dalganın tepesinde alçak küpeşteye kayan denize düşer.
+    this.overSpeed = w && w.t > 0.6 && w.t < 2.8 ? 2.2 : this.env.overSpeed;
+    this.gvx = (roll - this.gx) / h; this.gvz = (pitch - this.gz) / h;
+    this.gx = roll; this.gz = pitch; this.tgx = roll; this.tgz = pitch;
+  }
+
+  // Testere: kollar döner; bıçağın önceki ve şimdiki konumu kesme taraması için saklanır.
+  // sp.k dönüş hızının oranı (0 duruyor, 1 tam hız); yavaşken kesmez (sp.armed).
+  stepSaw(h) {
+    for (const sp of this.env.spinners) {
+      sp.t = (sp.t + h) % SAW_CYCLE;
+      const t = sp.t;
+      sp.k = t < SAW_ON ? 1 : t < SAW_ON + SAW_DOWN ? 1 - (t - SAW_ON) / SAW_DOWN
+        : t < SAW_ON + SAW_DOWN + SAW_OFF ? 0 : (t - SAW_ON - SAW_DOWN - SAW_OFF) / SAW_UP;
+      sp.armed = sp.k > 0.4;
+      // NPC'ler için tehlike: dönüyor ya da birazdan dönmeye başlayacak.
+      sp.danger = sp.k > 0.1 || t > SAW_CYCLE - SAW_UP - 0.7;
+      sp.a += sp.w * sp.k * h;
+      const c = Math.cos(sp.a), s2 = Math.sin(sp.a);
+      const cur = { bx: sp.x - c * sp.r, by: sp.h, bz: sp.z - s2 * sp.r, tx: sp.x + c * sp.r, ty: sp.h, tz: sp.z + s2 * sp.r };
+      sp.prev = sp.cur || cur;
+      sp.cur = cur;
+    }
+  }
+
+  // Gece: ay ışığı, koyu gök ve sis.
+  applyNight() {
+    this.night = true;
+    const u = this.sky.material.uniforms;
+    u.top.value.set(0x05070f); u.horizon.value.set(0x1b2440); u.bottom.value.set(0x05060a);
+    this.scene.fog.color.set(0x141b30);
+    this.hemi.color.set(0x8fa6ff); this.hemi.groundColor.set(0x1a1c26); this.hemi.intensity *= 0.42;
+    this.sun.color.set(0xb8c8ff); this.sun.intensity *= 0.38;
+    this.baseHemi = this.hemi.intensity;
+    // Asıl ışık ortam haritasından geliyor: kısılmazsa gökyüzü kararır ama zemin gündüz kalır.
+    if (this.dayEnvI === undefined) this.dayEnvI = this.scene.environmentIntensity;
+    this.scene.environmentIntensity = this.dayEnvI * 0.22;
+    // Karanlıkta görüş kısalır: uzak yer koyu maviye gömülür.
+    const fog = this.scene.fog;
+    fog.near = Math.min(fog.near, 6); fog.far = Math.min(fog.far * 0.5, 55);
+  }
+
+  // Şimşek: kısa süre her şey aydınlanır.
+  flash() { this.flashT = 0.18; }
 
   // Buz: ağırlık momentine göre eğim hedefi; ağır kütle yavaş, sallanarak yatar.
   stepFloe(h) {
@@ -1071,6 +1186,188 @@ export class World {
       clouds: this.clouds(group, 7, 170, 40, 80),
       sky: [0x8fc2ee, 0xf4f8fc, 0x6c70d0], fog: [35, 170],
       hemi: [0xeef6ff, 0x8aa6d6, 1.15], sun: [0xffffff, 2.5, -0.4, 1, 0.45],
+    };
+  }
+
+  // Yağmur: kameranın çevresinde düşen damlalar (gemi seviyesi).
+  updateRain(dt, cam) {
+    const r = this.env.rain;
+    if (!r) return;
+    const P = r.geo.attributes.position, a = P.array;
+    for (let i = 0; i < a.length; i += 3) {
+      a[i + 1] -= 22 * dt; a[i] += 3 * dt;
+      if (a[i + 1] < cam.y - 6 || Math.abs(a[i] - cam.x) > 14 || Math.abs(a[i + 2] - cam.z) > 14) {
+        a[i] = cam.x + rand(-14, 14); a[i + 1] = cam.y + rand(2, 12); a[i + 2] = cam.z + rand(-14, 14);
+      }
+    }
+    P.needsUpdate = true;
+  }
+
+  buildSaw() {
+    const group = new THREE.Group();
+    const floorTex = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#5c6066'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 1800; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)'; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+      g.strokeStyle = '#3d4045'; g.lineWidth = 4;
+      for (let i = 0; i <= 2; i++) { g.beginPath(); g.moveTo(i * w / 2, 0); g.lineTo(i * w / 2, h); g.stroke(); g.beginPath(); g.moveTo(0, i * h / 2); g.lineTo(w, i * h / 2); g.stroke(); }
+      g.fillStyle = '#7a7f86';
+      for (const [x, y] of [[20, 20], [w - 20, 20], [20, h - 20], [w - 20, h - 20], [w / 2 - 20, h / 2 - 20]]) { g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); }
+    }, 0);
+    floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping; floorTex.repeat.set(14, 14);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(19, 48).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.6, metalness: 0.3 }));
+    floor.receiveShadow = true;
+    group.add(floor);
+    const pit = new THREE.Mesh(new THREE.PlaneGeometry(300, 300).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 1 }));
+    pit.position.y = -0.02;
+    group.add(pit);
+    // Arena duvarı: kalın taş halka ve üstünde demir parmaklık.
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x6e655c, roughness: 0.95, flatShading: true });
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(19.8, 19.8, 1.6, 48, 1, true), wallMat);
+    wall.material.side = THREE.DoubleSide;
+    wall.position.y = 0.8;
+    wall.receiveShadow = true;
+    group.add(wall);
+    // Dönen kollar: direk, uyarı şeritli taban, kol ve uçlarında dairesel testereler.
+    const hazard = canvasTex(128, 32, (g, w, h) => { g.fillStyle = '#f2c230'; g.fillRect(0, 0, w, h); g.fillStyle = '#1b1b1b'; for (let o = -h; o < w + h; o += 24) { g.beginPath(); g.moveTo(o, 0); g.lineTo(o + 12, 0); g.lineTo(o + 12 - h, h); g.lineTo(o - h, h); g.closePath(); g.fill(); } }, 0);
+    hazard.wrapS = THREE.RepeatWrapping; hazard.repeat.set(6, 1);
+    const steel = new THREE.MeshStandardMaterial({ color: 0xc9cfd6, metalness: 0.9, roughness: 0.25 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x2c2f33, metalness: 0.6, roughness: 0.5 });
+    const ringMat = new THREE.MeshStandardMaterial({ map: hazard, roughness: 0.7 });
+    const spinners = [];
+    for (const [x, z, r, hgt, w, t0] of SPINNERS) {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r + 0.1, r + 0.45, 40).rotateX(-Math.PI / 2), ringMat);
+      ring.position.set(x, 0.01, z);
+      group.add(ring);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, hgt + 0.25, 12), dark);
+      post.position.set(x, (hgt + 0.25) / 2, z);
+      post.castShadow = true;
+      group.add(post);
+      const arm = new THREE.Group();
+      arm.position.set(x, hgt, z);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(r * 2, 0.07, 0.22), steel);
+      bar.castShadow = true;
+      arm.add(bar);
+      const discs = [];
+      for (const sx of [-1, 1]) {
+        const d = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.04, 20), steel);
+        d.position.x = sx * r;
+        d.castShadow = true;
+        arm.add(d);
+        discs.push(d);
+      }
+      group.add(arm);
+      const a0 = Math.random() * Math.PI * 2;
+      spinners.push({ x, z, r, h: hgt, w, a: a0, a0, t: t0, t0, k: 0, armed: false, danger: false, arm, discs, cur: null, prev: null });
+    }
+    // Duvar dibinde meşaleler
+    const torchMat = new THREE.MeshBasicMaterial({ color: 0xffa040 });
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.45, 8), torchMat);
+      f.position.set(Math.cos(a) * 19.4, 1.9, Math.sin(a) * 19.4);
+      group.add(f);
+    }
+    return {
+      group, spinners, radius: 18.6, floe: null, water: null, waterY: -Infinity, canFall: false,
+      clouds: this.clouds(group, 4, 170, 50, 90),
+      sky: [0x3b2a33, 0x8a5a4a, 0x2a2420], fog: [30, 120],
+      hemi: [0xffd9b8, 0x3a3030, 0.9], sun: [0xffc896, 2.3, 0.3, 1, 0.4],
+    };
+  }
+
+  buildShip() {
+    const group = new THREE.Group();
+    const plat = new THREE.Group();
+    group.add(plat);
+    // Güverte ve gövde: yandan bakınca pruvaya daralan bir dış hat.
+    const outline = [];
+    for (let z = -SHIP_L; z <= SHIP_L + 1e-6; z += 0.5) outline.push([shipHalfW(z), z]);
+    const shape = new THREE.Shape();
+    outline.forEach(([w, z], i) => (i ? shape.lineTo(w, -z) : shape.moveTo(w, -z)));
+    for (let i = outline.length - 1; i >= 0; i--) shape.lineTo(-outline[i][0], -outline[i][1]);
+    shape.closePath();
+    const plank = canvasTex(256, 256, (g, w, h) => {
+      g.fillStyle = '#8a5e3b'; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 8; i++) { g.fillStyle = i % 2 ? '#80552f' : '#946640'; g.fillRect(i * w / 8, 0, w / 8 - 2, h); }
+      g.fillStyle = 'rgba(30,15,5,0.5)'; for (let i = 0; i < 8; i++) g.fillRect(i * w / 8 - 2, 0, 2, h);
+      for (let i = 0; i < 900; i++) { g.fillStyle = 'rgba(0,0,0,0.06)'; g.fillRect(Math.random() * w, Math.random() * h, 1, 5); }
+    }, 0);
+    plank.wrapS = plank.wrapT = THREE.RepeatWrapping; plank.repeat.set(0.35, 0.35);
+    const deckGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.4, bevelEnabled: false });
+    deckGeo.rotateX(-Math.PI / 2); deckGeo.translate(0, -0.4, 0);
+    const deck = new THREE.Mesh(deckGeo, [new THREE.MeshStandardMaterial({ map: plank, roughness: 0.8 }), new THREE.MeshStandardMaterial({ color: 0x4a2f1c, roughness: 0.9 })]);
+    deck.receiveShadow = true;
+    plat.add(deck);
+    const hullGeo = new THREE.ExtrudeGeometry(shape, { depth: 3.2, bevelEnabled: true, bevelThickness: 0.2, bevelSize: 0.25, bevelSegments: 2 });
+    hullGeo.rotateX(-Math.PI / 2); hullGeo.translate(0, -3.6, 0);
+    const hull = new THREE.Mesh(hullGeo, new THREE.MeshStandardMaterial({ color: 0x3b2416, roughness: 0.9 }));
+    plat.add(hull);
+    // Küpeşte: dikmeler ve üst parmaklık.
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x6b4426, roughness: 0.8 });
+    const railH = 0.55;
+    const side = [];
+    for (let z = -SHIP_L; z <= SHIP_L + 1e-6; z += 1.5) side.push([shipHalfW(z), z]);
+    for (const sx of [-1, 1]) {
+      for (let i = 0; i < side.length; i++) {
+        const [w, z] = side[i];
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, railH, 0.12), railMat);
+        post.position.set(sx * w, railH / 2, z);
+        post.castShadow = true;
+        plat.add(post);
+        if (i) {
+          const [w0, z0] = side[i - 1];
+          const len = Math.hypot(w - w0, z - z0);
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, len), railMat);
+          rail.position.set(sx * (w + w0) / 2, railH, (z + z0) / 2);
+          rail.rotation.y = Math.atan2(sx * (w - w0), z - z0);
+          plat.add(rail);
+        }
+      }
+    }
+    const stern = new THREE.Mesh(new THREE.BoxGeometry(shipHalfW(-SHIP_L) * 2, 0.1, 0.14), railMat);
+    stern.position.set(0, railH, -SHIP_L);
+    plat.add(stern);
+    // Direkler, serenler ve yelkenler.
+    const mastMat = new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 0.8 });
+    const sailMat = new THREE.MeshStandardMaterial({ color: 0xe8dfc8, roughness: 0.9, side: THREE.DoubleSide });
+    for (const [mx, mz] of MASTS) {
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 11, 10), mastMat);
+      mast.position.set(mx, 5.5, mz);
+      mast.castShadow = true;
+      plat.add(mast);
+      for (const [y, w] of [[4.2, 6], [8, 4.4]]) {
+        const yard = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, w, 8), mastMat);
+        yard.rotation.z = Math.PI / 2;
+        yard.position.set(mx, y + 2.6, mz);
+        plat.add(yard);
+        const sailGeo = new THREE.PlaneGeometry(w * 0.92, 2.5, 6, 3);
+        const pos = sailGeo.attributes.position;
+        for (let i = 0; i < pos.count; i++) pos.setZ(i, 0.45 * (1 - (pos.getX(i) / (w * 0.46)) ** 2));
+        const sail = new THREE.Mesh(sailGeo, sailMat);
+        sail.position.set(mx, y + 1.3, mz + 0.05);
+        sail.castShadow = true;
+        plat.add(sail);
+      }
+    }
+    // Fırtınalı deniz ve yağmur.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), waterMaterial(0x1d2a3a, 0x4d6278));
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = -2.4;
+    group.add(water);
+    const rainGeo = new THREE.BufferGeometry();
+    const ra = new Float32Array(700 * 3);
+    for (let i = 0; i < ra.length; i += 3) { ra[i] = rand(-14, 14); ra[i + 1] = rand(-4, 12); ra[i + 2] = rand(-14, 14); }
+    rainGeo.setAttribute('position', new THREE.BufferAttribute(ra, 3));
+    const rainPts = new THREE.Points(rainGeo, new THREE.PointsMaterial({ color: 0xbfd0e6, size: 0.06, transparent: true, opacity: 0.7, depthWrite: false }));
+    rainPts.frustumCulled = false;
+    group.add(rainPts);
+    return {
+      group, plat, ship: true, rain: { geo: rainGeo },
+      wallH: railH, overSpeed: 5.5, fallDepth: 2.6,
+      radius: SHIP_L, floe: null, water, waterY: -2.4, canFall: true,
+      clouds: this.clouds(group, 9, 160, 30, 60),
+      sky: [0x2b3442, 0x6d7a88, 0x1a2029], fog: [22, 110],
+      hemi: [0xc8d4e4, 0x30343a, 0.75], sun: [0xd8e2f0, 1.4, 0.3, 1, 0.5],
     };
   }
 

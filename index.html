@@ -29,6 +29,10 @@
     pointer-events: auto; background: rgba(20,20,40,0.55); padding: 12px; border-radius: 14px; backdrop-filter: blur(6px); }
   #settings[hidden] { display: none; }
   #settings button { font: 700 16px system-ui, sans-serif; color: #fff; background: rgba(255,255,255,0.14); border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
+  #settings { max-height: calc(100vh - 90px - env(safe-area-inset-top)); overflow-y: auto; }
+  #settings .s-head { font: 700 12px system-ui, sans-serif; opacity: 0.7; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  #settings .s-jumps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #settings .s-jumps button { font-size: 14px; padding: 9px 10px; }
 </style>
 </head>
 <body>

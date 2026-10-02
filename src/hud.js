@@ -1,4 +1,5 @@
 import { clamp } from './util.js';
+import { Sfx } from './audio.js';
 import { J } from './ragdoll.js';
 
 // HUD: sol üstte seviye, sağ üstte ayar ve yeniden başlat, ortada duyurular.
@@ -19,14 +20,21 @@ export class Hud {
       <div id="banner"><div id="b-main"></div><div id="b-sub"></div></div>
       <div id="settings" hidden>
         <button id="s-sound"></button>
+        <button id="s-music"></button>
         <button id="s-quality"></button>
-        <button id="s-battle">Muharebeye git</button>
-        <button id="s-grid">Izgara arenasına git</button>
-        <button id="s-ice">Buz haritasına git</button>
-        <button id="s-roof">Platform seviyesine git</button>
-        <button id="s-horse">At seviyesine git</button>
-        <button id="s-titan">Titan seviyesine git</button>
-        <button id="s-titanwar">Titan muharebesine git</button>
+        <div class="s-head">Doğrudan git</div>
+        <div class="s-jumps">
+          <button data-jump="battle">Muharebe</button>
+          <button data-jump="grid">Izgara</button>
+          <button data-jump="ice">Buz</button>
+          <button data-jump="roof">Platform</button>
+          <button data-jump="horse">At</button>
+          <button data-jump="saw">Testere</button>
+          <button data-jump="ship">Gemi</button>
+          <button data-jump="waves">Dalga</button>
+          <button data-jump="titan">Titan</button>
+          <button data-jump="titanwar">Titan savaşı</button>
+        </div>
         <button id="s-close">Kapat</button>
       </div>`;
     this.lv = root.querySelector('#lv');
@@ -41,13 +49,9 @@ export class Hud {
     root.querySelector('#s-close').addEventListener('click', () => { this.settings.hidden = true; });
     root.querySelector('#s-sound').addEventListener('click', () => { game.toggleSound(); this.refreshSettings(); });
     root.querySelector('#s-quality').addEventListener('click', () => { game.toggleQuality(); this.refreshSettings(); });
-    root.querySelector('#s-battle').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('battle'); });
-    root.querySelector('#s-grid').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('grid'); });
-    root.querySelector('#s-ice').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('ice'); });
-    root.querySelector('#s-roof').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('roof'); });
-    root.querySelector('#s-horse').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('horse'); });
-    root.querySelector('#s-titan').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titan'); });
-    root.querySelector('#s-titanwar').addEventListener('click', () => { this.settings.hidden = true; game.jumpTo('titanwar'); });
+    root.querySelector('#s-music').addEventListener('click', () => { Sfx.init(); Sfx.toggleMusic(); this.refreshSettings(); });
+    for (const b of root.querySelectorAll('[data-jump]')) b.addEventListener('click', () => { this.settings.hidden = true; game.jumpTo(b.dataset.jump); });
+    for (const b of root.querySelectorAll('button')) b.addEventListener('click', () => Sfx.click());
     this.bannerT = 0;
     this.flash = 0;
     this.resize();
@@ -57,6 +61,7 @@ export class Hud {
     const g = this.game;
     this.settings.querySelector('#s-sound').textContent = `Ses: ${g.soundOn ? 'Açık' : 'Kapalı'}`;
     this.settings.querySelector('#s-quality').textContent = `Grafik: ${g.highQuality ? 'Yüksek' : 'Düşük'}`;
+    this.settings.querySelector('#s-music').textContent = `Müzik: ${Sfx.musicOn ? 'Açık' : 'Kapalı'}`;
   }
 
   resize() {
@@ -184,6 +189,9 @@ export class Hud {
       if (mode === 'battle') lines = ['Maviler dost, morlar düşman', 'Az it = dur · çok it = dörtnala · hızlı çevir = KES', 'Hızlıyken sert dön: at drift atar'];
       if (mode === 'grid') lines = ['Parlayan karolardan uzak dur', 'Mavi halka ve pembe pistonlar havaya fırlatır', 'Kenardan boşluğa düşen ölür'];
       if (mode === 'roof') lines = ['Dört köşede dört halat platformu tutuyor', 'Birini kes: o köşeye yatar · yan yana iki: devrilir', 'Kenardan düşen ölür'];
+      if (mode === 'saw') lines = ['Dönen bıçaklar HERKESİ keser: seni de', 'Kollar durup dinlenir: duruyorken içinden geç', 'Düşmanları dönen kolların yoluna çek'];
+      if (mode === 'ship') lines = ['Güverte dalgayla yatar: herkes alçak yana kayar', 'BÜYÜK DALGA uyarısında yüksek yana koş', 'Darbeyle küpeşteden savrulan denize düşer'];
+      if (mode === 'waves') lines = ['Düşmanlar dalga dalga gelir', 'Sahadakiler azalınca sıradaki dalga gelir', 'Son dalgada boss var'];
       if (mode === 'ice') lines = ['Buz yüzüyor: ağırlık hangi yana toplanırsa o yan batar', 'Batan kenar su olur: orada duran düşer', 'Düşmanları kenara topla, sen ortada kal'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
