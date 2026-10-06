@@ -261,7 +261,7 @@ export class Effects {
         ax /= al; ay /= al; az /= al;
         const dd = b.d[0] * ax + b.d[1] * ay + b.d[2] * az;
         ux = b.d[0] - ax * dd; uy = b.d[1] - ay * dd; uz = b.d[2] - az * dd;
-        const r = bn.r * 0.9;
+        const r = bn.r / rag.hitK * 0.9;
         const ul = Math.hypot(ux, uy, uz) || 1;
         ux /= ul; uy /= ul; uz /= ul;
         px += ux * r; py += uy * r; pz += uz * r;

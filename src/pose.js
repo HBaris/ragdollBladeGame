@@ -47,6 +47,18 @@ export const POSES = {
     o.bob = -Math.abs(Math.cos(ph)) * 0.07 + 0.05;
     return o;
   },
+  // Yürüyüş/hafif koşu: kalkışta ilk adımlar. Daha dik, kısa adım, dizler az kalkar.
+  walk(o, ph) {
+    const s = Math.sin(ph);
+    o.lean = 0.08; o.hunch = 0.5; o.twist = -s * 0.1; o.side = 0; o.headP = -0.22;
+    o.lP = 0.12 + 0.42 * s;
+    o.lB = 0.45 + 0.6 * Math.max(0, Math.cos(ph + 0.5));
+    o.rP = 0.12 - 0.42 * s;
+    o.rB = 0.45 + 0.6 * Math.max(0, Math.cos(ph + Math.PI + 0.5));
+    o.lS = 0.07 + 0.03 * Math.sin(ph + 1.3); o.rS = 0.07 - 0.03 * Math.sin(ph + 1.3);
+    o.bob = -Math.abs(Math.cos(ph)) * 0.03 + 0.015;
+    return o;
+  },
   // Hızını alamayıp dizüstü kayma: ön ayak ileride fren, arka diz yerde, gövde öne.
   kneel(o) {
     o.lean = 0.25; o.hunch = 0.35; o.twist = 0; o.side = 0; o.headP = -0.2;

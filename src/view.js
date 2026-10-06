@@ -6,7 +6,8 @@ import { clamp, rand } from './util.js';
 // kesik uçlarında kırmızı kesit. Kesikten sonra kemik listesi değişince yeniden eşitlenir.
 
 // Kemik kalınlık profilleri (S = 1 için metre). Gövde: s=0 kalça, s=1 boyun dibi.
-const TORSO_KEYS = [[0, 0.165], [0.2, 0.162], [0.45, 0.142], [0.72, 0.172], [0.9, 0.168], [1, 0.118]];
+// İnce, uzun "ucube" vücut: dar bel, biraz geniş göğüs, çubuk gibi kollar ve bacaklar.
+const TORSO_KEYS = [[0, 0.1], [0.2, 0.094], [0.45, 0.078], [0.72, 0.106], [0.9, 0.1], [1, 0.064]];
 function torsoR(s) {
   for (let i = 1; i < TORSO_KEYS.length; i++) {
     const [s1, r1] = TORSO_KEYS[i];
@@ -19,11 +20,11 @@ function torsoR(s) {
   return TORSO_KEYS[TORSO_KEYS.length - 1][1];
 }
 const LIMB_R = {
-  100: [0.066, 0.06], // boyun
-  304: [0.072, 0.058], 607: [0.072, 0.058], // üst kollar
-  405: [0.058, 0.05], 708: [0.058, 0.05], // ön kollar
-  910: [0.108, 0.076], 1213: [0.108, 0.076], // uyluklar
-  1011: [0.078, 0.056], 1314: [0.078, 0.056], // baldırlar
+  100: [0.04, 0.036], // boyun
+  304: [0.04, 0.032], 607: [0.04, 0.032], // üst kollar
+  405: [0.033, 0.027], 708: [0.033, 0.027], // ön kollar
+  910: [0.06, 0.042], 1213: [0.06, 0.042], // uyluklar
+  1011: [0.044, 0.03], 1314: [0.044, 0.03], // baldırlar
 };
 function profileR(b, s) {
   if (b.kind === 'torso') return torsoR(s);
@@ -90,18 +91,19 @@ export class CharacterView {
 
     this.headGroup = new THREE.Group();
     const head = new THREE.Mesh(sphereGeo, this.mat);
-    const hr = this.rag.d.headR;
+    // Kafa ince gövdeye göre küçük; gözler aynı boyda kalıp kafadan dışarı fırlar.
+    const hr = this.rag.d.headR * 0.8;
     head.scale.set(hr * 0.95, hr * 1.12, hr * 1.08);
     head.castShadow = true;
     this.headGroup.add(head);
     this.pupils = [];
     for (const sx of [-1, 1]) {
       const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.scale.setScalar(0.062 * S);
-      eye.position.set(sx * 0.058 * S, 0.05 * S, 0.105 * S);
+      eye.scale.setScalar(0.058 * S);
+      eye.position.set(sx * 0.05 * S, 0.06 * S, 0.088 * S);
       const pupil = new THREE.Mesh(smallSphereGeo, pupilMat);
-      pupil.scale.setScalar(0.027 * S);
-      pupil.userData.base = new THREE.Vector3(sx * 0.058 * S, 0.05 * S, 0.105 * S + 0.05 * S);
+      pupil.scale.setScalar(0.025 * S);
+      pupil.userData.base = new THREE.Vector3(sx * 0.05 * S, 0.06 * S, 0.088 * S + 0.047 * S);
       pupil.position.copy(pupil.userData.base);
       this.headGroup.add(eye, pupil);
       this.pupils.push(pupil);
@@ -115,7 +117,7 @@ export class CharacterView {
     this.deadLook = [new THREE.Vector2(rand(-1, 1), rand(-1, 1)), new THREE.Vector2(rand(-1, 1), rand(-1, 1))];
 
     this.extremities = [];
-    for (const [i, r, sy] of [[J.LHAND, 0.07, 1], [J.RHAND, 0.07, 1], [J.LFOOT, 0.082, 0.75], [J.RFOOT, 0.082, 0.75]]) {
+    for (const [i, r, sy] of [[J.LHAND, 0.045, 1], [J.RHAND, 0.045, 1], [J.LFOOT, 0.058, 0.75], [J.RFOOT, 0.058, 0.75]]) {
       const m = new THREE.Mesh(limbGeo, this.mat);
       m.scale.set(r * S, r * S * sy, r * S * (sy < 1 ? 1.35 : 1));
       m.castShadow = true;

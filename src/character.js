@@ -107,14 +107,14 @@ export class Character {
     this.strafeDir = Math.random() < 0.5 ? -1 : 1;
     this.deathT = 0;
     this.d = dims(this.S);
-    this.footR = 0.07 * this.S;
+    this.footR = 0.048 * this.S;
     this.pose = POSES.guard(makePose(), 0);
     this.tpose = makePose();
     this.local = new Float32Array(JOINTS * 3);
     this.world = new Float32Array(JOINTS * 3);
     poseFK(this.pose, this.d, this.local, this.footR);
     this.localToWorld();
-    this.rag = new Ragdoll(this.S, this.world, { k: this.isPlayer ? 1100 : 850, c: this.isPlayer ? 30 : 24 });
+    this.rag = new Ragdoll(this.S, this.world, { k: this.isPlayer ? 1100 : 850, c: this.isPlayer ? 30 : 24, hitK: this.titan ? 1.4 : 1 });
     // Kılıç: yerel (lg, ld, lw) ve dünya (sw) durumları, bıçak parçası (önceki / şimdiki).
     this.lg = [0, 0, 0]; this.ld = [0, 0, 1]; this.lw = [1, 0, 0];
     this.sw = { gx: 0, gy: 0, gz: 0, dx: 0, dy: 1, dz: 0, wx: 1, wy: 0, wz: 0 };
@@ -730,7 +730,10 @@ export class Character {
     // Tutunma hız düştükçe hemen geri gelmez: kayma bir süre sürer.
     const k = Math.sqrt(clamp((sp - 0.15 * top) / (0.55 * top), 0, 1));
     const legs = this.legMask === 3 ? 1 : 0.7;
-    const acc = (this.isPlayer ? 20 : 15) * legs;
+    // Kalkış yavaş, hızlandıkça açılır: oyuncu tam hıza ~1,4 sn'de, rakipler ~1 sn'de çıkar.
+    // Önce birkaç yürüyüş adımı, sonra koşu, sonra depar (animate'te hız oranına bağlı).
+    const g = clamp(sp / top, 0, 1);
+    const acc = (this.isPlayer ? lerp(3.8, 6.5, g) : lerp(3.2, 5.5, g)) * legs;
     const grip = lerp(GRIP_SLOW, GRIP_FAST, k) * legs, brake = lerp(GRIP_SLOW, BRAKE_FAST, k) * legs;
     const fx = this.vx / sp, fz = this.vz / sp;
     const wl = wx * fx + wz * fz, wlat = -wx * fz + wz * fx;
@@ -762,7 +765,9 @@ export class Character {
     const back = vx * this.forwardX + vz * this.forwardZ < -0.3 * sp ? -1 : 1;
     const lm = this.legMask;
     // Kayarken bacaklar boşa çırpınır.
-    this.phase += (back * sp + this.slip * 5) * dt / ((lm === 3 ? STRIDE : STRIDE * 0.6) * this.gait * this.S) * Math.PI * 2;
+    // Adım boyu hızla uzar: yürürken kısa adım, deparda uzun.
+    const stride = STRIDE * lerp(0.6, 1.1, clamp(sp / Math.max(this.speed, 1), 0, 1));
+    this.phase += (back * sp + this.slip * 5) * dt / ((lm === 3 ? stride : STRIDE * 0.6) * this.gait * this.S) * Math.PI * 2;
   }
 
   // Drift tozu ve lastik gibi gıcırtı.
@@ -789,11 +794,15 @@ export class Character {
     if (this.mount) { POSES.ride(P, this.mount.phase); phFixed = 0.02; }
     else if (this.y > this.gy + 0.05 || this.falling) POSES.air(P, this.t);
     else if (lm === 3) {
-      const runK = clamp(sp / (this.isPlayer ? 3.2 : 2), 0, 1);
+      // Duruştan harekete geçiş hızla; hareketin içinde yürüyüşten depara geçiş hız oranıyla.
+      const moveK = clamp(sp / 1.1, 0, 1);
+      const g = clamp(sp / Math.max(this.speed, 1), 0, 1), sprint = g * g * (3 - 2 * g);
+      const runK = moveK * lerp(0.45, 1, sprint);
       this.runK = runK;
-      // Dururken çömelik, kambur duruş; koşarken öne yatık koşu.
+      // Dururken çömelik, kambur duruş; yürürken dik; koşarken öne yatık koşu.
       blendPose(_e, POSES.guard(_a, this.t), POSES.crouch(_c, this.t + this.gaitOff), this.low);
-      blendPose(P, _e, POSES.run(_b, this.phase), runK);
+      blendPose(_b, POSES.walk(_b, this.phase), POSES.run(_d, this.phase), sprint);
+      blendPose(P, _e, _b, moveK);
       // Gevşek, sarhoş koşu: gövde adım adım yana yalpalar, öne pompalar, kafa sallanır.
       const o = this.gaitOff;
       // Yalpalama iki adımda bir: üst gövdenin kendi salınımına yakın, o yüzden büyür.

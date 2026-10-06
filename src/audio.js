@@ -5,7 +5,7 @@ import { clamp, rand } from './util.js';
 export const Sfx = (() => {
   let ac = null, out = null, noise = null, muted = false;
   let musicBus = null, ambBus = null;
-  const MUSIC_VOL = 0.45;
+  const MUSIC_VOL = 0.6;
   const last = {};
   const onReady = [];
 
@@ -22,7 +22,13 @@ export const Sfx = (() => {
     noise = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
     const d = noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    musicBus = ac.createGain(); musicBus.gain.value = MUSIC_VOL; musicBus.connect(out);
+    // Müzik kendi sıkıştırıcısından geçer: derin davul tepeleri bastırılır, orta bant
+    // (telefon hoparlörünün çaldığı kısım) öne çıkar.
+    musicBus = ac.createGain(); musicBus.gain.value = MUSIC_VOL;
+    const mOut = ac.createGain(); mOut.gain.value = 1.2;
+    const mc = ac.createDynamicsCompressor();
+    mc.threshold.value = -30; mc.knee.value = 10; mc.ratio.value = 5; mc.attack.value = 0.004; mc.release.value = 0.2;
+    musicBus.connect(mc); mc.connect(mOut); mOut.connect(out);
     ambBus = ac.createGain(); ambBus.gain.value = 0.35; ambBus.connect(out);
     for (const f of onReady) f();
   }
@@ -116,26 +122,53 @@ export const Sfx = (() => {
     const L = st.scale.length;
     return st.root + 12 * (oct + Math.floor(deg / L)) + st.scale[deg % L];
   }
+  // Telefon hoparlörü ~400 Hz altını neredeyse hiç vermez: her davulun derin gövdesinin
+  // yanında orta bantta bir "tok" ve şaklama da var, yoksa telefonda davul duyulmaz.
+  function hit(t, f0, f1, dur, vol, slap) {
+    tone(t, dur, 'sine', f0, f1, vol * 0.8, musicBus);
+    tone(t, dur * 0.7, 'triangle', f0 * 2.6, f1 * 2.2, vol * 0.45, musicBus);
+    nz(t, 0.05, 'bandpass', slap, slap * 0.7, 1.4, vol * 0.5, musicBus);
+  }
   function drum(st, i, t, lv) {
-    const S = st.steps;
     if (st.drums === 'taiko') {
-      if (lv >= 1 && (i === 0 || i === 6 || i === 8 || (i === 14 && M.bar % 2))) { tone(t, 0.3, 'sine', 120, 48, 0.55, musicBus); nz(t, 0.07, 'lowpass', 900, 200, 1, 0.25, musicBus); }
-      if (lv >= 1 && (i === 4 || i === 12)) nz(t, 0.05, 'bandpass', 2600, 2000, 3, 0.18, musicBus);
-      if (i % 2 === 0) nz(t, 0.03, 'highpass', 7000, 9000, 1, lv >= 1 ? 0.06 : 0.035, musicBus);
+      if (lv >= 1 && (i === 0 || i === 6 || i === 8 || (i === 14 && M.bar % 2))) hit(t, 130, 55, 0.32, 0.6, 1100);
+      if (lv >= 1 && (i === 4 || i === 12)) nz(t, 0.06, 'bandpass', 2600, 2000, 2.5, 0.3, musicBus);
+      if (i % 2 === 0) nz(t, 0.03, 'highpass', 6000, 8000, 1, lv >= 1 ? 0.09 : 0.05, musicBus);
     } else if (st.drums === 'gallop') {
-      if (lv >= 1 && [0, 3, 6, 8, 11, 14].includes(i)) { tone(t, 0.18, 'sine', 110, 50, i % 8 === 0 ? 0.5 : 0.32, musicBus); }
-      if (lv >= 1 && (i === 4 || i === 12)) nz(t, 0.08, 'bandpass', 1800, 1200, 1.5, 0.22, musicBus);
-      nz(t, 0.025, 'highpass', 8000, 9000, 1, 0.04, musicBus);
+      if (lv >= 1 && [0, 3, 6, 8, 11, 14].includes(i)) hit(t, 120, 55, 0.18, i % 8 === 0 ? 0.55 : 0.36, 1500);
+      if (lv >= 1 && (i === 4 || i === 12)) nz(t, 0.09, 'bandpass', 1900, 1300, 1.3, 0.38, musicBus);
+      nz(t, 0.025, 'highpass', 7000, 9000, 1, 0.07, musicBus);
     } else if (st.drums === 'epic') {
-      if (lv >= 1 && (i === 0 || i === 10)) { tone(t, 0.7, 'sine', 80, 30, 0.7, musicBus); nz(t, 0.4, 'lowpass', 400, 60, 1, 0.3, musicBus); }
-      if (lv >= 1 && (i === 6 || i === 14)) tone(t, 0.25, 'sine', 140, 70, 0.3, musicBus);
-      if (lv >= 2 && i % 2 === 1) nz(t, 0.04, 'bandpass', 3000, 2500, 2, 0.06, musicBus);
+      if (lv >= 1 && (i === 0 || i === 10)) { hit(t, 90, 35, 0.7, 0.75, 700); nz(t, 0.4, 'lowpass', 900, 120, 1, 0.3, musicBus); }
+      if (lv >= 1 && (i === 6 || i === 14)) hit(t, 160, 80, 0.25, 0.4, 1300);
+      if (lv >= 1 && i % 2 === 1) nz(t, 0.04, 'bandpass', 3200, 2600, 2, lv >= 2 ? 0.12 : 0.06, musicBus);
     } else {
-      if (lv >= 1 && (i === 0 || i === 6)) tone(t, 0.25, 'sine', 100, 50, 0.45, musicBus);
-      if (lv >= 1 && (i === 3 || i === 9)) nz(t, 0.06, 'bandpass', 2200, 1600, 2, 0.16, musicBus);
-      if (i % 3 === 0) nz(t, 0.03, 'highpass', 7000, 9000, 1, 0.04, musicBus);
+      if (lv >= 1 && (i === 0 || i === 6)) hit(t, 110, 55, 0.25, 0.5, 1200);
+      if (lv >= 1 && (i === 3 || i === 9)) nz(t, 0.07, 'bandpass', 2200, 1600, 1.6, 0.3, musicBus);
+      if (i % 3 === 0) nz(t, 0.03, 'highpass', 6500, 8500, 1, 0.07, musicBus);
     }
-    return S;
+  }
+  // Sürekli çalan orta bant katman (telefonda müziği asıl bu taşır): samurayda koto arpeji,
+  // savaşta kesik yaylı, destansıda akor nabzı, denizcide "um-pa" akordeon.
+  const ARP = [0, 2, 4, 2, 0, 2, 4, 5];
+  function ostinato(st, i, t, chord, stepDur) {
+    const deg0 = st.scale.indexOf(((chord[0] % 12) + 12) % 12);
+    const base = deg0 < 0 ? 0 : deg0;
+    if (M.style === 'samurai') {
+      if (i % 2) return;
+      const f = midi(degToMidi(st, base + ARP[(i >> 1) % 8], 1));
+      note(t, 0.45, 'square', f, 0.12, 3200, 500, 0.003);
+      note(t, 0.3, 'triangle', f * 2, 0.06, 2600, 900, 0.003);
+    } else if (M.style === 'war') {
+      const acc = i % 4 === 0;
+      note(t, stepDur * 1.8, 'sawtooth', midi(st.root + 24 + chord[0] + (i % 8 === 6 ? 7 : 0)), acc ? 0.15 : 0.1, 2600, 900, 0.004);
+    } else if (M.style === 'epic') {
+      if (i % 2) return;
+      for (const c of chord) note(t, stepDur * 1.6, 'sawtooth', midi(st.root + 24 + c), i % 8 === 0 ? 0.09 : 0.06, 1800, 700, 0.01);
+    } else {
+      if (i % 3 === 0) note(t, stepDur * 1.5, 'sawtooth', midi(st.root + chord[0]), 0.13, 1500, 400, 0.006);
+      else for (const c of chord) note(t, stepDur * 0.9, 'square', midi(st.root + 12 + c), i % 3 === 1 ? 0.1 : 0.06, 2400, 1000, 0.006);
+    }
   }
   function schedStep(t) {
     const st = STYLES[M.style];
@@ -148,8 +181,11 @@ export const Sfx = (() => {
     const beat = 60 / st.bpm, stepDur = st.steps === 12 ? beat / 3 : beat / 4;
     drum(st, i, t, lv);
     // Bas: her ölçünün başında ve ortasında akorun kökü.
-    if (i === 0 || i === st.steps / 2) note(t, beat * 1.6, 'triangle', midi(st.root - 12 + chord[0]), 0.32, 700, 200, 0.01);
-    if (st.drums === 'gallop' && (i % 4 === 2)) note(t, beat * 0.4, 'sawtooth', midi(st.root - 12 + chord[0]), 0.12, 900, 300, 0.01);
+    if (i === 0 || i === st.steps / 2) {
+      note(t, beat * 1.6, 'sine', midi(st.root - 12 + chord[0]), 0.2, 400, 200, 0.01);
+      note(t, beat * 1.4, 'sawtooth', midi(st.root + chord[0]), 0.13, 1600, 300, 0.01);
+    }
+    if (lv >= 1) ostinato(st, i, t, chord, stepDur);
     // Destansı/denizci: akor dolgusu ölçü başında.
     if ((M.style === 'epic' || M.style === 'sea') && i === 0) {
       for (const c of chord) for (const det of [-6, 6]) {
@@ -165,10 +201,10 @@ export const Sfx = (() => {
     if (lv >= 2 && (st.steps === 12 || i % 2 === 0)) {
       const deg = M.motif[(mi + (M.bar % 2) * (st.steps === 12 ? 6 : 8)) % M.motif.length];
       if (deg !== null) {
-        const f = midi(degToMidi(st, deg, 1) + chord[0] * 0);
-        if (st.lead === 'pluck') { note(t, 0.7, 'square', f, 0.07, 4200, 700, 0.003); note(t, 0.5, 'triangle', f * 2, 0.03, 3000, 900, 0.003); }
-        else if (st.lead === 'brass') note(t, stepDur * 2.2, 'sawtooth', f, 0.06, 2200, 900, 0.03);
-        else note(t, stepDur * 2.4, 'square', f, 0.045, 1800, 1100, 0.02);
+        const f = midi(degToMidi(st, deg, st.root < 48 ? 2 : 1));
+        if (st.lead === 'pluck') { note(t, 0.7, 'square', f, 0.1, 4200, 800, 0.003); note(t, 0.5, 'triangle', f * 2, 0.045, 3000, 1000, 0.003); }
+        else if (st.lead === 'brass') { note(t, stepDur * 2.2, 'sawtooth', f, 0.09, 2600, 1000, 0.03); note(t, stepDur * 2.2, 'square', f * 1.002, 0.04, 2000, 900, 0.03); }
+        else note(t, stepDur * 2.4, 'square', f, 0.08, 2200, 1200, 0.02);
       }
     }
     return stepDur;

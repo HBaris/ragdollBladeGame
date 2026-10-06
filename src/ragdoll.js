@@ -25,35 +25,39 @@ const JOINT_C = [0.6, 0.9, 1.0, 0.9, 1.0, 1.0, 0.9, 1.0, 1.0, 0.8, 0.6, 0.6, 0.8
 // Dikey sertlik çarpanı: üst gövde koşunun zıplamasını dikeyde sıkı takip eder (yoksa
 // ataletiyle belden katlanır), öne/yana salınım ise yumuşak kalır.
 const JOINT_KY = [3, 4, 1.5, 4, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1, 1, 4];
-const JOINT_R = [0.14, 0.07, 0.14, 0.08, 0.06, 0.06, 0.08, 0.06, 0.06, 0.09, 0.08, 0.07, 0.09, 0.08, 0.07, 0.15];
+// Eklem noktalarının yarıçapı (zemine değme): ince uzuvlarla uyumlu, yerde yatan ceset havada durmasın.
+const JOINT_R = [0.14, 0.045, 0.1, 0.05, 0.04, 0.045, 0.05, 0.04, 0.045, 0.065, 0.05, 0.048, 0.065, 0.05, 0.048, 0.1];
 export const MIN_CUT_LEN = 0.12;
 const ITERS = 5;
 
 // a, b, yarıçap, tür[, profil a, profil b]. 'struct' kemikler görünmez ve kesilmez ama
 // bağlantıyı taşır. Gövde iki parça: göğüs (boyun-bel) ve karın (bel-pelvis).
+// Yarıçap kılıcın isabet mesafesi: ince görünüşten biraz geniş (gövde kafayı biraz korusun diye
+// 2-3 cm; titanınki ayrıca büyütülür).
 const BONE_DEFS = [
-  [J.NECK, J.SPINE, 0.17, 'torso', 1, 0.5],
-  [J.SPINE, J.PELVIS, 0.17, 'torso', 0.5, 0],
-  [J.NECK, J.HEAD, 0.07, 'neck'],
+  [J.NECK, J.SPINE, 0.145, 'torso', 1, 0.5],
+  [J.SPINE, J.PELVIS, 0.145, 'torso', 0.5, 0],
+  [J.NECK, J.HEAD, 0.05, 'neck'],
   [J.NECK, J.LSH, 0, 'struct'],
   [J.NECK, J.RSH, 0, 'struct'],
   [J.LSH, J.RSH, 0, 'struct'],
   [J.PELVIS, J.LHIP, 0, 'struct'],
   [J.PELVIS, J.RHIP, 0, 'struct'],
   [J.LHIP, J.RHIP, 0, 'struct'],
-  [J.LSH, J.LELB, 0.068, 'arm'],
-  [J.LELB, J.LHAND, 0.06, 'arm'],
-  [J.RSH, J.RELB, 0.068, 'arm'],
-  [J.RELB, J.RHAND, 0.06, 'arm'],
-  [J.LHIP, J.LKNEE, 0.092, 'leg'],
-  [J.LKNEE, J.LFOOT, 0.074, 'leg'],
-  [J.RHIP, J.RKNEE, 0.092, 'leg'],
-  [J.RKNEE, J.RFOOT, 0.074, 'leg'],
+  [J.LSH, J.LELB, 0.048, 'arm'],
+  [J.LELB, J.LHAND, 0.042, 'arm'],
+  [J.RSH, J.RELB, 0.048, 'arm'],
+  [J.RELB, J.RHAND, 0.042, 'arm'],
+  [J.LHIP, J.LKNEE, 0.068, 'leg'],
+  [J.LKNEE, J.LFOOT, 0.052, 'leg'],
+  [J.RHIP, J.RKNEE, 0.068, 'leg'],
+  [J.RKNEE, J.RFOOT, 0.052, 'leg'],
 ];
 
 export function dims(S) {
   return {
-    spine: 0.52 * S, neck: 0.24 * S, shW: 0.2 * S, hipW: 0.11 * S,
+    // İnce, uzun uzuvlu "ucube" vücut: omuz ve kalça dar, bacaklar birbirine yakın.
+    spine: 0.52 * S, neck: 0.24 * S, shW: 0.14 * S, hipW: 0.085 * S,
     ua: 0.29 * S, fa: 0.27 * S, th: 0.44 * S, sh: 0.43 * S, headR: 0.14 * S,
   };
 }
@@ -71,6 +75,8 @@ export class Ragdoll {
     this.S = S;
     this.d = dims(S);
     this.kBase = opt.k;
+    // Titanın isabet yarıçapı eski kalın vücuttaki gibi (boyun dengesi ona göre ayarlı).
+    this.hitK = opt.hitK || 1;
     this.cBase = opt.c;
     this.alive = true;
     this.muscle = 1;
@@ -88,10 +94,12 @@ export class Ragdoll {
       this.pts.push(newPoint(x, y, z, JOINT_R[i] * S, JOINT_K[i], JOINT_C[i], JOINT_KY[i]));
       this.tgt[i * 3] = x; this.tgt[i * 3 + 1] = y; this.tgt[i * 3 + 2] = z;
     }
-    this.pts[J.HEAD].r = this.d.headR;
+    this.pts[J.HEAD].r = this.d.headR * 0.8; // zemine değme: görünen kafa
+    // Kafanın isabet yarıçapı: görünen kafadan biraz geniş; titanda eskisi gibi (denge ona göre).
+    this.headHitR = this.d.headR * (this.hitK > 1 ? 1 : 0.86);
     this.pts[J.HEAD].im = 0.8;
     this.pts[J.PELVIS].pin = false; // yayla bağlı (JOINT_K), çivili değil
-    for (const [a, b, r, kind, sa, sb] of BONE_DEFS) this.addBone(a, b, r * S, kind, sa, sb);
+    for (const [a, b, r, kind, sa, sb] of BONE_DEFS) this.addBone(a, b, r * S * this.hitK, kind, sa, sb);
     // Göğüs (omuzlar-boyun-bel) ve karın (kalçalar-pelvis-bel) kendi içinde sağlam; bel
     // ise bilye eklem gibi her yöne bükülür ve burulur. Sırtın tamamen katlanmasını sadece
     // "en az" kısıtları önler.
@@ -266,10 +274,11 @@ export class Ragdoll {
     u = clamp(u, 0.18, 0.82);
     const A = this.pts[b.a], B = this.pts[b.b];
     const mk = () => {
-      const p = newPoint(lerp(A.x, B.x, u), lerp(A.y, B.y, u), lerp(A.z, B.z, u), b.r * 0.9, 0);
+      const vr = b.r / this.hitK * 0.82; // görünen kalınlık (isabet yarıçapı biraz daha geniş)
+      const p = newPoint(lerp(A.x, B.x, u), lerp(A.y, B.y, u), lerp(A.z, B.z, u), vr * 0.9, 0);
       p.px = lerp(A.px, B.px, u); p.py = lerp(A.py, B.py, u); p.pz = lerp(A.pz, B.pz, u);
       p.stump = true;
-      p.stumpR = b.r;
+      p.stumpR = vr;
       return p;
     };
     const i1 = this.pts.push(mk()) - 1;
@@ -336,7 +345,7 @@ export class Ragdoll {
 // pb/cb: { bx,by,bz (kabza tarafı), tx,ty,tz (uç) }
 export function sweepRagdoll(rag, pb, cb, steps) {
   const bones = rag.bones, pts = rag.pts;
-  const head = pts[J.HEAD], hr = rag.d.headR;
+  const head = pts[J.HEAD], hr = rag.headHitR;
   for (let s = 1; s <= steps; s++) {
     const f = s / steps;
     const bx = lerp(pb.bx, cb.bx, f), by = lerp(pb.by, cb.by, f), bz = lerp(pb.bz, cb.bz, f);
@@ -365,7 +374,7 @@ export function sweepRagdoll(rag, pb, cb, steps) {
 // gömüldüğü kalın göğüs yerine burası sayılır: önden de arkadan da boyun kesilir.
 const COLLAR_U = 0.22;
 export function sweepNeckZone(rag, pb, cb, steps) {
-  const pts = rag.pts, head = pts[J.HEAD], hr = rag.d.headR;
+  const pts = rag.pts, head = pts[J.HEAD], hr = rag.headHitR;
   const ni = rag.boneWith(J.HEAD), ti = rag.bones.findIndex((b) => b.kind === 'torso' && (b.a === J.NECK || b.b === J.NECK));
   if (ni < 0 || !pts[J.HEAD].attached) return null;
   for (let s = 1; s <= steps; s++) {
