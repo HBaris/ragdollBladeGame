@@ -907,14 +907,14 @@ export class Character {
     const loose = this.aimCtl && this.hasSword;
     if (this.aimCtl && !this.hasSword) this.episode = null;
     if (loose && !(this.blockT > 0 && !this.isPlayer)) {
-      // Kılıç joystick yönüne bakar ama hep tam karşıya değil: dururken önde, ucu yukarıda;
-      // koşarken sağ kalçada dik taşınır, adımlarla zıplar. Savurunca iner: çömelmişken
+      // Kılıç joystick yönüne bakar ama hep tam karşıya değil: dururken önde, ucu hafif
+      // yukarıda (~10°); koşarken sağ kalçada öne uzanır (~20°), adımlarla zıplar. Savurunca iner: çömelmişken
       // bacak hizasına (ucu yeri sıyırır), koşarken bel hizasına. Sağdan sola ve soldan
       // sağa savuruşlar biraz farklı yükseklikten geçer. Asıl uç fiziksel (simBlade).
       const rel = wrapAngle(this.yaw - this.swYaw);
       const spd = this.flying ? 1 : clamp(Math.abs(this.swW) / 6, 0, 1);
       const lo = this.mount ? 0 : this.low, run = this.runK;
-      const restP = lerp(lerp(0.75, 1.0, run), 0.62, lo);
+      const restP = lerp(lerp(0.42, 0.46, run), 0.42, lo);
       // Her savuruş rastgele bir yükseklikten geçer (biraz tesadüf); joystick az itilmişse
       // koşarken de alçaktan (biraz bilerek).
       const aw = Math.abs(this.swW);
