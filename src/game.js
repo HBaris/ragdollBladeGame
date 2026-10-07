@@ -319,7 +319,7 @@ export class Game {
     // Titanlarla savaşta vuruş/kopma yazıları çıkmaz (sadece dost geldi yazısı kalır).
     this.fx.quiet = this.titanMode;
     const pz = spec.type === 'titan' ? -30 : spec.type === 'horse' ? 0 : spec.type === 'battle' || spec.type === 'titanwar' ? -22 : -6;
-    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: mounted ? HORSE_BLADE_LEN : BLADE_LEN, dual: this.titanMode });
+    this.player = this.addChar({ team: 'player', x: 0, z: pz, yaw: 0, hp: 1, color: PLAYER_COLOR, speed: PLAYER_SPEED, bladeLen: mounted ? HORSE_BLADE_LEN : BLADE_LEN, dual: this.titanMode || spec.type === 'waves' });
     if (mounted) this.mountOn(this.player, 0x9a5a33, 0x3a2214);
     this.goodGuys = [this.player];
     const m = spec.enemies.length;

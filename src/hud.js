@@ -191,7 +191,7 @@ export class Hud {
       if (mode === 'roof') lines = ['Dört köşede dört halat platformu tutuyor', 'Birini kes: o köşeye yatar · yan yana iki: devrilir', 'Kenardan düşen ölür'];
       if (mode === 'saw') lines = ['Dönen bıçaklar HERKESİ keser: seni de', 'Kollar durup dinlenir: duruyorken içinden geç', 'Düşmanları dönen kolların yoluna çek'];
       if (mode === 'ship') lines = ['Güverte dalgayla yatar: herkes alçak yana kayar', 'BÜYÜK DALGA uyarısında yüksek yana koş', 'Darbeyle küpeşteden savrulan denize düşer'];
-      if (mode === 'waves') lines = ['Düşmanlar dalga dalga gelir', 'Sahadakiler azalınca sıradaki dalga gelir', 'Son dalgada boss var'];
+      if (mode === 'waves') lines = ['İki elinde birer kılıç var: kalabalığı biç', 'Düşmanlar dalga dalga gelir', 'Son dalgada boss var'];
       if (mode === 'ice') lines = ['Buz yüzüyor: ağırlık hangi yana toplanırsa o yan batar', 'Batan kenar su olur: orada duran düşer', 'Düşmanları kenara topla, sen ortada kal'];
       lines.forEach((l, i) => { const y = this.H * 0.72 + i * 22 * u; c.strokeText(l, this.W / 2, y); c.fillText(l, this.W / 2, y); });
       c.globalAlpha = 1;
