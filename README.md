@@ -1,5 +1,20 @@
 # Ragdoll Kılıç 3D
 
+**▶ [Play in your browser](https://hbaris.github.io/ragdollBladeGame/)**: works on desktop and on phones.
+
+![Ragdoll Kılıç 3D](docs/screenshot.jpg)
+
+**English summary.** A physics-driven 3D ragdoll sword game. There is no menu: the level starts the moment the page opens. You run, swing a two-handed sword, and slice jelly-like ragdolls apart. There is a boss every 5th level.
+
+- **Physics:** spring-based sword physics, jelly-like spine and limbs, real dismemberment.
+- **Controls:** one-joystick control (drag anywhere, or WASD). Cuts depend on how fast the blade swings.
+- **Mobile performance:** if FPS stays low, the game turns off shadows automatically.
+- **Mobile builds:** packaged for Android and iOS with Capacitor; store builds run on GitHub Actions.
+
+> The detailed design notes below are in Turkish.
+
+---
+
 Menü yok. Sayfayı açtığın an seviye başlıyor: koş, kılıcı savur, jöle gibi ragdoll'ları doğra.
 
 Arkadan takip eden kamera, iri oynak gözlü parlak karakterler, iki elle tutulan uzun kılıç ve gerçekten kopan kafa, kol, bacak ve gövde. Seviye sayacı var (Lv 1, 2, 3…); her 5. seviye boss.
